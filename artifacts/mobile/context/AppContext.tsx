@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import {
   Block, Building, Floor, InspectionSession, Project, Service, Unit,
   getActiveSession, getDatabase, getProject, startSession,
@@ -52,7 +53,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const loadProject = useCallback(async () => {
     try {
-      await getDatabase();
+      await Promise.race([
+        getDatabase(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('db-init-timeout')), Platform.OS === 'web' ? 2000 : 15000),
+        ),
+      ]);
       const p = await getProject();
       setProject(p);
       if (p) {
@@ -76,12 +82,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const existing = await getActiveSession(project.id);
     if (existing) {
       setActiveSession(existing);
+      setCaptureNavState(prev => ({ ...prev, sessionId: existing.id }));
       return existing;
     }
     const id = await startSession(project.id);
     const { getSessionById } = await import('@/db/database');
     const session = await getSessionById(id);
     setActiveSession(session);
+    setCaptureNavState(prev => ({ ...prev, sessionId: session?.id ?? id }));
     return session;
   }, [project]);
 

@@ -348,6 +348,13 @@ export async function deleteBlock(id: number): Promise<void> {
     JOIN photo_group pg ON pg.id=p.photo_group_id JOIN unit u ON u.id=pg.unit_id
     JOIN floor f ON f.id=u.floor_id JOIN building b ON b.id=f.building_id WHERE b.block_id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos nesta quadra.');
+  await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
+    SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id JOIN building b ON b.id=f.building_id WHERE b.block_id=?)`, [id]);
+  await db.runAsync(`DELETE FROM unit WHERE floor_id IN (
+    SELECT f.id FROM floor f JOIN building b ON b.id=f.building_id WHERE b.block_id=?)`, [id]);
+  await db.runAsync('DELETE FROM floor WHERE building_id IN (SELECT id FROM building WHERE block_id=?)', [id]);
+  await db.runAsync('DELETE FROM building WHERE block_id=?', [id]);
+  await db.runAsync('DELETE FROM generated_report WHERE block_id=?', [id]);
   await db.runAsync('DELETE FROM block WHERE id=?', [id]);
 }
 
@@ -394,6 +401,10 @@ export async function deleteBuilding(id: number): Promise<void> {
     JOIN photo_group pg ON pg.id=p.photo_group_id JOIN unit u ON u.id=pg.unit_id
     JOIN floor f ON f.id=u.floor_id WHERE f.building_id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos neste prédio.');
+  await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
+    SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id WHERE f.building_id=?)`, [id]);
+  await db.runAsync('DELETE FROM unit WHERE floor_id IN (SELECT id FROM floor WHERE building_id=?)', [id]);
+  await db.runAsync('DELETE FROM floor WHERE building_id=?', [id]);
   await db.runAsync('DELETE FROM building WHERE id=?', [id]);
 }
 
@@ -454,6 +465,8 @@ export async function deleteFloor(id: number): Promise<void> {
     SELECT COUNT(*) as count FROM photo p
     JOIN photo_group pg ON pg.id=p.photo_group_id JOIN unit u ON u.id=pg.unit_id WHERE u.floor_id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos neste pavimento.');
+  await db.runAsync('DELETE FROM photo_group WHERE unit_id IN (SELECT id FROM unit WHERE floor_id=?)', [id]);
+  await db.runAsync('DELETE FROM unit WHERE floor_id=?', [id]);
   await db.runAsync('DELETE FROM floor WHERE id=?', [id]);
 }
 
@@ -518,6 +531,7 @@ export async function deleteUnit(id: number): Promise<void> {
   const c = await db.getFirstAsync<{ count: number }>(`
     SELECT COUNT(*) as count FROM photo p JOIN photo_group pg ON pg.id=p.photo_group_id WHERE pg.unit_id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos nesta unidade.');
+  await db.runAsync('DELETE FROM photo_group WHERE unit_id=?', [id]);
   await db.runAsync('DELETE FROM unit WHERE id=?', [id]);
 }
 

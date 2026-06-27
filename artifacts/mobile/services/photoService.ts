@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 
 const PHOTOS_DIR = FileSystem.documentDirectory + 'photos/';
@@ -47,7 +47,7 @@ export async function savePhoto(sourceUri: string): Promise<{
   );
   await FileSystem.copyAsync({ from: thumb.uri, to: thumbnailUri });
 
-  const fileInfo = await FileSystem.getInfoAsync(permanentUri, { size: true });
+  const fileInfo = await FileSystem.getInfoAsync(permanentUri);
   const sizeBytes = (fileInfo as any).size ?? 0;
 
   return {
