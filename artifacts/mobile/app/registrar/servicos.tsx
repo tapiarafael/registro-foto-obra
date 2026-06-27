@@ -35,7 +35,13 @@ export default function RegistrarServicos() {
         captureNav.floor?.name ?? '', captureNav.unit?.name ?? '',
       ]} />
       {items.length === 0 ? (
-        <EmptyState icon="tool" title="Nenhum serviço" message="Cadastre serviços na aba Estrutura." />
+        <EmptyState
+          icon="tool"
+          title="Nenhum serviço"
+          message="Cadastre serviços na aba Estrutura."
+          actionLabel="Cadastrar serviços"
+          onAction={() => router.push('/estrutura/servicos')}
+        />
       ) : (
         <FlatList
           data={items}

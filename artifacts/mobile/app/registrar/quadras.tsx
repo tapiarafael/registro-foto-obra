@@ -29,7 +29,13 @@ export default function RegistrarQuadras() {
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <BreadcrumbBar items={[]} />
       {blocks.length === 0 ? (
-        <EmptyState icon="grid" title="Nenhuma quadra" message="Cadastre quadras na aba Estrutura." />
+        <EmptyState
+          icon="grid"
+          title="Nenhuma quadra"
+          message="Cadastre quadras na aba Estrutura."
+          actionLabel="Cadastrar quadras"
+          onAction={() => router.push('/estrutura/quadras')}
+        />
       ) : (
         <FlatList
           data={blocks}

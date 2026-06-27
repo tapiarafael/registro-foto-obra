@@ -29,7 +29,16 @@ export default function RegistrarPavimentos() {
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <BreadcrumbBar items={[captureNav.block?.name ?? '', captureNav.building?.name ?? '']} />
       {items.length === 0 ? (
-        <EmptyState icon="layers" title="Nenhum pavimento" message="Cadastre pavimentos na aba Estrutura." />
+        <EmptyState
+          icon="layers"
+          title="Nenhum pavimento"
+          message="Cadastre pavimentos na aba Estrutura."
+          actionLabel="Cadastrar pavimentos"
+          onAction={() => captureNav.building && router.push({
+            pathname: '/estrutura/pavimentos',
+            params: { buildingId: String(captureNav.building.id), buildingName: captureNav.building.name },
+          })}
+        />
       ) : (
         <FlatList
           data={items}

@@ -29,7 +29,16 @@ export default function RegistrarPredios() {
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <BreadcrumbBar items={[captureNav.block?.name ?? '']} />
       {items.length === 0 ? (
-        <EmptyState icon="home" title="Nenhum prédio" message="Cadastre prédios na aba Estrutura." />
+        <EmptyState
+          icon="home"
+          title="Nenhum prédio"
+          message="Cadastre prédios na aba Estrutura."
+          actionLabel="Cadastrar prédios"
+          onAction={() => captureNav.block && router.push({
+            pathname: '/estrutura/predios',
+            params: { blockId: String(captureNav.block.id), blockName: captureNav.block.name },
+          })}
+        />
       ) : (
         <FlatList
           data={items}

@@ -29,7 +29,16 @@ export default function RegistrarUnidades() {
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <BreadcrumbBar items={[captureNav.block?.name ?? '', captureNav.building?.name ?? '', captureNav.floor?.name ?? '']} />
       {items.length === 0 ? (
-        <EmptyState icon="box" title="Nenhuma unidade" message="Cadastre unidades na aba Estrutura." />
+        <EmptyState
+          icon="box"
+          title="Nenhuma unidade"
+          message="Cadastre unidades na aba Estrutura."
+          actionLabel="Cadastrar unidades"
+          onAction={() => captureNav.floor && router.push({
+            pathname: '/estrutura/unidades',
+            params: { floorId: String(captureNav.floor.id), floorName: captureNav.floor.name },
+          })}
+        />
       ) : (
         <FlatList
           data={items}
