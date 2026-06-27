@@ -23,11 +23,12 @@ interface Props {
   left?: React.ReactNode;
   right?: React.ReactNode;
   photoCount?: number;
+  done?: boolean;
 }
 
 export default function HierarchyCard({
   title, subtitle, badge, onPress, onLongPress,
-  archived = false, showChevron = true, left, right, photoCount,
+  archived = false, showChevron = true, left, right, photoCount, done = false,
 }: Props) {
   const c = colors.light;
   const scale = useSharedValue(1);
@@ -63,10 +64,17 @@ export default function HierarchyCard({
           </View>
         ) : null}
       </View>
-      {right ? (
-        <View style={styles.rightSlot}>{right}</View>
-      ) : showChevron && onPress ? (
-        <Feather name="chevron-right" size={20} color={c.mutedForeground} />
+      {(done || right || (showChevron && onPress)) ? (
+        <View style={styles.rightSlot}>
+          {done ? (
+            <View style={styles.doneBadge}>
+              <Feather name="check" size={14} color="#fff" />
+            </View>
+          ) : null}
+          {right ? right : showChevron && onPress ? (
+            <Feather name="chevron-right" size={20} color={c.mutedForeground} />
+          ) : null}
+        </View>
       ) : null}
     </AnimatedPressable>
   );
@@ -97,5 +105,9 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 11, color: '#fff', fontWeight: '600' },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   photoCount: { fontSize: 11, color: c.primary, fontWeight: '500' },
-  rightSlot: { marginLeft: 8 },
+  rightSlot: { marginLeft: 8, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  doneBadge: {
+    width: 26, height: 26, borderRadius: 13, backgroundColor: c.success,
+    alignItems: 'center', justifyContent: 'center',
+  },
 });

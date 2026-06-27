@@ -1,3 +1,4 @@
 - [expo-sqlite web bundling & native-only preview](expo-sqlite-web.md) — web preview can't run native modules; add `wasm` to metro assetExts, web-only short DB-init timeout, verify on Android.
 - [hierarchy delete pattern](hierarchy-delete-pattern.md) — guard-on-photos then manual bottom-up descendant deletes; never use ON DELETE CASCADE (orphans image files).
 - [reanimated v4 setup & animation conventions](reanimated-setup.md) — no babel plugin (babel-preset-expo wires worklets); stack/tab transition + LoadingScreen + HierarchyCard press/entrance patterns.
+- [capture (registrar) flow conventions](capture-flow.md) — camera pushed from servicos; done uses router.back(); "done today" badge via *ForDate queries + todayDateString; shutterSound:false.

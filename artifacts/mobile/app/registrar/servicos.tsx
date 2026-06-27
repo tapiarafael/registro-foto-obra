@@ -4,7 +4,8 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { getServices, getOrCreatePhotoGroup, type Service } from '@/db/database';
+import { getServices, getServicesForDateUnit, getOrCreatePhotoGroup, type Service } from '@/db/database';
+import { todayDateString } from '@/services/photoService';
 import HierarchyCard from '@/components/HierarchyCard';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
 import EmptyState from '@/components/EmptyState';
@@ -13,12 +14,20 @@ export default function RegistrarServicos() {
   const router = useRouter();
   const { project, captureNav, setCaptureNav, setPhotoGroupId } = useApp();
   const [items, setItems] = useState<Service[]>([]);
+  const [doneIds, setDoneIds] = useState<Set<number>>(new Set());
 
   useFocusEffect(useCallback(() => {
     (async () => {
-      if (project) setItems(await getServices(project.id));
+      if (!project) return;
+      setItems(await getServices(project.id));
+      if (captureNav.unit) {
+        const done = await getServicesForDateUnit(captureNav.unit.id, todayDateString());
+        setDoneIds(new Set(done.map((s) => s.id)));
+      } else {
+        setDoneIds(new Set());
+      }
     })();
-  }, [project]));
+  }, [project, captureNav.unit]));
 
   const select = async (service: Service) => {
     if (!captureNav.sessionId || !captureNav.unit) return;
@@ -53,6 +62,7 @@ export default function RegistrarServicos() {
               left={<View style={styles.icon} />}
               onPress={() => select(item)}
               showChevron={false}
+              done={doneIds.has(item.id)}
             />
           )}
         />

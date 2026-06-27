@@ -62,7 +62,7 @@ export default function CameraScreen() {
   const takePhoto = async () => {
     if (!cameraRef.current || busy) return;
     try {
-      const result = await cameraRef.current.takePictureAsync({ quality: 0.9 });
+      const result = await cameraRef.current.takePictureAsync({ quality: 0.9, shutterSound: false });
       if (result?.uri) await persist(result.uri, 'CAMERA');
     } catch (e) {
       console.error('takePhoto error', e);
@@ -147,7 +147,7 @@ export default function CameraScreen() {
             {busy ? <ActivityIndicator color={c.primary} /> : <View style={styles.shutterInner} />}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.doneBtn} onPress={() => router.dismissAll()} disabled={busy}>
+          <TouchableOpacity style={styles.doneBtn} onPress={() => router.back()} disabled={busy}>
             <Feather name="check" size={24} color="#fff" />
             <Text style={styles.doneText}>{photos.length}</Text>
           </TouchableOpacity>

@@ -4,7 +4,8 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { getUnits, type Unit } from '@/db/database';
+import { getUnits, getUnitsForDate, type Unit } from '@/db/database';
+import { todayDateString } from '@/services/photoService';
 import HierarchyCard from '@/components/HierarchyCard';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
 import EmptyState from '@/components/EmptyState';
@@ -13,10 +14,14 @@ export default function RegistrarUnidades() {
   const router = useRouter();
   const { captureNav, setCaptureNav } = useApp();
   const [items, setItems] = useState<Unit[]>([]);
+  const [doneIds, setDoneIds] = useState<Set<number>>(new Set());
 
   useFocusEffect(useCallback(() => {
     (async () => {
-      if (captureNav.floor) setItems(await getUnits(captureNav.floor.id));
+      if (!captureNav.floor) return;
+      setItems(await getUnits(captureNav.floor.id));
+      const done = await getUnitsForDate(captureNav.floor.id, todayDateString());
+      setDoneIds(new Set(done.map((u) => u.id)));
     })();
   }, [captureNav.floor]));
 
@@ -45,7 +50,7 @@ export default function RegistrarUnidades() {
           keyExtractor={(u) => String(u.id)}
           contentContainerStyle={styles.list}
           renderItem={({ item }) => (
-            <HierarchyCard title={item.name} left={<View style={styles.icon} />} onPress={() => select(item)} />
+            <HierarchyCard title={item.name} left={<View style={styles.icon} />} onPress={() => select(item)} done={doneIds.has(item.id)} />
           )}
         />
       )}
