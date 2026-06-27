@@ -1,0 +1,32 @@
+### Registro Fotográfico de Obra: On-Site Organization and Agility
+
+**Registro Fotográfico de Obra** (Construction Photo Tracker) is an Android application developed specifically for civil engineers and construction inspectors working directly at the construction site. Its primary mission is to eliminate the exhaustive manual workflow of capturing photos with a phone, moving them to a computer, manually renaming every file, and separating them into folders to create PDF reports.
+
+Designed for field realities—where internet connections are often unavailable and the environment is challenging—the application works completely offline. All structured data and original photos remain safely on the user's Android device without depending on cloud services or web APIs.
+
+---
+
+**Key Features and Benefits:**
+
+* 
+**Real-Time Structured Organization:** Users navigate the project and register photos following the actual construction hierarchy (Quadra, Prédio, Pavimento, Unidade, and Serviço), automatically associating every image with its exact complete location.
+
+
+* 
+**Automatic Watermarking:** Every captured or imported photo receives a visible watermark containing the date, time, and the complete hierarchical location of that record.
+
+
+* 
+**Instant Report Generation:** You can quickly generate structured, professional PDF reports for one specific Quadra and one date.
+
+
+* 
+**Smart ZIP Export:** Alongside the PDF, the application can export a ZIP file containing all photos logically organized into folders and correctly renamed according to the construction's physical structure.
+
+
+* 
+**Built for the Field:** Features a fast, practical interface prioritizing speed over decorative complexity, with large buttons and high contrast, designed for one-handed use, under strong sunlight, or while wearing gloves.
+
+
+
+This application is a dedicated photo-first construction documentation tool , allowing professionals to focus on site inspection while the system handles all the heavy lifting of organizing, renaming, and formatting visual records without manual intervention.

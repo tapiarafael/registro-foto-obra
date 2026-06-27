@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "Joitqx4gUJf4cSRBMeqN6"
+uri = "file://artifacts/mobile/assets/images/icon.png"
+type = "image"
+title = "construction photo tracker app icon"
