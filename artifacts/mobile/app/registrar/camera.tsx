@@ -23,6 +23,10 @@ export default function CameraScreen() {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<Photo | null>(null);
   const [facing] = useState<'back' | 'front'>('back');
+  const [flash, setFlash] = useState<'off' | 'on' | 'auto'>('off');
+
+  const cycleFlash = () => setFlash((f) => (f === 'off' ? 'on' : f === 'on' ? 'auto' : 'off'));
+  const flashLabel = flash === 'off' ? 'Flash' : flash === 'on' ? 'Flash ligado' : 'Flash auto';
 
   const groupId = captureNav.photoGroupId;
 
@@ -118,7 +122,7 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing={facing} />
+      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing={facing} flash={flash} />
 
       <SafeAreaView style={styles.overlay} pointerEvents="box-none">
         <View style={styles.topBar}>
@@ -131,6 +135,18 @@ export default function CameraScreen() {
               {captureNav.block?.name} · {captureNav.building?.name} · {captureNav.floor?.name} · {captureNav.unit?.name}
             </Text>
           </View>
+          <TouchableOpacity
+            style={[styles.iconBtn, flash !== 'off' && styles.iconBtnActive]}
+            onPress={cycleFlash}
+            accessibilityLabel={flashLabel}
+          >
+            <Feather
+              name={flash === 'off' ? 'zap-off' : 'zap'}
+              size={20}
+              color={flash === 'off' ? '#fff' : '#000'}
+            />
+            {flash === 'auto' && <Text style={styles.flashAuto}>A</Text>}
+          </TouchableOpacity>
         </View>
 
         <View style={styles.watermark} pointerEvents="none">
@@ -197,6 +213,8 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'space-between' },
   topBar: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, backgroundColor: 'rgba(0,0,0,0.4)' },
   iconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
+  iconBtnActive: { backgroundColor: c.accent },
+  flashAuto: { position: 'absolute', bottom: 5, right: 7, fontSize: 9, fontWeight: '700', color: '#000' },
   topInfo: { flex: 1 },
   topService: { color: '#fff', fontSize: 16, fontWeight: '700' },
   topPath: { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 2 },
