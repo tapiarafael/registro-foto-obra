@@ -3,3 +3,4 @@
 - [reanimated v4 setup & animation conventions](reanimated-setup.md) — no babel plugin (babel-preset-expo wires worklets); stack/tab transition + LoadingScreen + HierarchyCard press/entrance patterns.
 - [capture (registrar) flow conventions](capture-flow.md) — camera pushed from servicos; done uses router.back(); "done today" badge via *ForDate queries + todayDateString; shutterSound:false.
 - [vector icon fonts must be preloaded](icon-fonts.md) — @expo/vector-icons lazy-loads; preload `...Feather.font` in root useFonts or glyphs break on some devices.
+- [Enhancement v1.1 patterns](enhancement-v1-1.md) — gerador range/ordinal, clone modal pattern, app_settings table, report settings screen conventions.

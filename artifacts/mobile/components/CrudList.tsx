@@ -25,12 +25,13 @@ interface Props<T extends CrudItem> {
   onCreate: (name: string) => Promise<void>;
   onRename: (item: T, name: string) => Promise<void>;
   onDelete: (item: T) => Promise<void>;
+  onDuplicate?: (item: T) => void;
   headerNote?: string;
 }
 
 export default function CrudList<T extends CrudItem>({
   items, icon = 'box', emptyTitle, emptyMessage, addLabel,
-  subtitleFor, onPressItem, onCreate, onRename, onDelete, headerNote,
+  subtitleFor, onPressItem, onCreate, onRename, onDelete, onDuplicate, headerNote,
 }: Props<T>) {
   const c = colors.light;
   const [modalVisible, setModalVisible] = useState(false);
@@ -78,6 +79,11 @@ export default function CrudList<T extends CrudItem>({
               onPress={onPressItem ? () => onPressItem(item) : undefined}
               right={
                 <View style={styles.actions}>
+                  {onDuplicate && (
+                    <TouchableOpacity style={styles.actionBtn} onPress={() => onDuplicate(item)} hitSlop={8}>
+                      <Feather name="copy" size={18} color={c.mutedForeground} />
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity style={styles.actionBtn} onPress={() => openEdit(item)} hitSlop={8}>
                     <Feather name="edit-2" size={18} color={c.mutedForeground} />
                   </TouchableOpacity>

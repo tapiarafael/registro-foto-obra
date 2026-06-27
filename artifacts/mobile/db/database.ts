@@ -117,6 +117,10 @@ export interface PhotoWithHierarchy extends Photo {
   floor_name: string;
   unit_name: string;
   service_name: string;
+  building_sort?: number;
+  floor_sort?: number;
+  unit_sort?: number;
+  service_sort?: number;
 }
 
 export interface DateSummary {
@@ -275,6 +279,12 @@ async function _init(db: SQLite.SQLiteDatabase): Promise<void> {
       ('Outro', 1, 99);
     `);
   }
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT ''
+    );
+  `);
 }
 
 // ===== PROJECT =====
@@ -860,4 +870,97 @@ export async function getTodayPhotoCount(): Promise<number> {
     `SELECT COUNT(*) as count FROM photo WHERE date(captured_at,'localtime')=date('now','localtime')`
   );
   return r?.count ?? 0;
+}
+
+// ===== CLONE OPERATIONS =====
+export async function cloneUnit(sourceId: number, targetFloorId: number, newName: string): Promise<number> {
+  const db = await getDatabase();
+  const src = await db.getFirstAsync<Unit>('SELECT * FROM unit WHERE id=?', [sourceId]);
+  if (!src) throw new Error('Unidade não encontrada');
+  const mx = await db.getFirstAsync<{ m: number | null }>('SELECT MAX(sort_order) as m FROM unit WHERE floor_id=?', [targetFloorId]);
+  const order = (mx?.m ?? 0) + 1;
+  const r = await db.runAsync(
+    'INSERT INTO unit (floor_id, unit_type_id, name, sort_order) VALUES (?,?,?,?)',
+    [targetFloorId, src.unit_type_id, newName, order]
+  );
+  return r.lastInsertRowId;
+}
+
+export async function cloneFloor(sourceId: number, targetBuildingId: number, newName: string): Promise<number> {
+  const db = await getDatabase();
+  const mx = await db.getFirstAsync<{ m: number | null }>('SELECT MAX(sort_order) as m FROM floor WHERE building_id=?', [targetBuildingId]);
+  const order = (mx?.m ?? 0) + 1;
+  return duplicateFloor(sourceId, targetBuildingId, newName, order);
+}
+
+export async function cloneBlock(sourceId: number, projectId: number, newName: string): Promise<number> {
+  const db = await getDatabase();
+  const mx = await db.getFirstAsync<{ m: number | null }>('SELECT MAX(sort_order) as m FROM block WHERE project_id=?', [projectId]);
+  const order = (mx?.m ?? 0) + 1;
+  const r = await db.runAsync('INSERT INTO block (project_id, name, sort_order) VALUES (?,?,?)', [projectId, newName, order]);
+  const newBlockId = r.lastInsertRowId;
+  const buildings = await db.getAllAsync<Building>('SELECT * FROM building WHERE block_id=? AND archived_at IS NULL ORDER BY sort_order', [sourceId]);
+  for (const building of buildings) {
+    const br = await db.runAsync('INSERT INTO building (block_id, name, sort_order) VALUES (?,?,?)',
+      [newBlockId, building.name, building.sort_order]);
+    const floors = await db.getAllAsync<Floor>('SELECT * FROM floor WHERE building_id=? AND archived_at IS NULL ORDER BY sort_order', [building.id]);
+    for (const floor of floors) {
+      const fr = await db.runAsync('INSERT INTO floor (building_id, name, numeric_reference, sort_order) VALUES (?,?,?,?)',
+        [br.lastInsertRowId, floor.name, floor.numeric_reference, floor.sort_order]);
+      const units = await db.getAllAsync<Unit>('SELECT * FROM unit WHERE floor_id=? AND archived_at IS NULL ORDER BY sort_order', [floor.id]);
+      for (const unit of units) {
+        await db.runAsync('INSERT INTO unit (floor_id, unit_type_id, name, sort_order) VALUES (?,?,?,?)',
+          [fr.lastInsertRowId, unit.unit_type_id, unit.name, unit.sort_order]);
+      }
+    }
+  }
+  return newBlockId;
+}
+
+export async function getFloorCloneStats(floorId: number): Promise<{ units: number }> {
+  const db = await getDatabase();
+  const r = await db.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM unit WHERE floor_id=? AND archived_at IS NULL', [floorId]
+  );
+  return { units: r?.count ?? 0 };
+}
+
+export async function getBuildingCloneStats(buildingId: number): Promise<{ floors: number; units: number }> {
+  const db = await getDatabase();
+  const f = await db.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM floor WHERE building_id=? AND archived_at IS NULL', [buildingId]
+  );
+  const u = await db.getFirstAsync<{ count: number }>(`
+    SELECT COUNT(*) as count FROM unit u JOIN floor f ON f.id=u.floor_id
+    WHERE f.building_id=? AND u.archived_at IS NULL AND f.archived_at IS NULL`, [buildingId]
+  );
+  return { floors: f?.count ?? 0, units: u?.count ?? 0 };
+}
+
+export async function getBlockCloneStats(blockId: number): Promise<{ buildings: number; floors: number; units: number }> {
+  const db = await getDatabase();
+  const b = await db.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM building WHERE block_id=? AND archived_at IS NULL', [blockId]
+  );
+  const f = await db.getFirstAsync<{ count: number }>(`
+    SELECT COUNT(*) as count FROM floor f JOIN building bl ON bl.id=f.building_id
+    WHERE bl.block_id=? AND f.archived_at IS NULL AND bl.archived_at IS NULL`, [blockId]
+  );
+  const u = await db.getFirstAsync<{ count: number }>(`
+    SELECT COUNT(*) as count FROM unit u JOIN floor f ON f.id=u.floor_id JOIN building bl ON bl.id=f.building_id
+    WHERE bl.block_id=? AND u.archived_at IS NULL AND f.archived_at IS NULL AND bl.archived_at IS NULL`, [blockId]
+  );
+  return { buildings: b?.count ?? 0, floors: f?.count ?? 0, units: u?.count ?? 0 };
+}
+
+// ===== APP SETTINGS =====
+export async function getAppSetting(key: string): Promise<string | null> {
+  const db = await getDatabase();
+  const r = await db.getFirstAsync<{ value: string }>('SELECT value FROM app_settings WHERE key=?', [key]);
+  return r?.value ?? null;
+}
+
+export async function setAppSetting(key: string, value: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?,?)', [key, value]);
 }
