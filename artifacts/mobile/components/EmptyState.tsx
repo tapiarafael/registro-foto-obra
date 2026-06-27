@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import colors from '@/constants/colors';
 
 interface Props {
@@ -14,7 +15,7 @@ interface Props {
 export default function EmptyState({ icon = 'inbox', title, message, actionLabel, onAction }: Props) {
   const c = colors.light;
   return (
-    <View style={styles.wrap}>
+    <Animated.View entering={FadeInDown.duration(360).springify().damping(16)} style={styles.wrap}>
       <View style={styles.iconCircle}>
         <Feather name={icon} size={32} color={c.mutedForeground} />
       </View>
@@ -25,7 +26,7 @@ export default function EmptyState({ icon = 'inbox', title, message, actionLabel
           <Text style={styles.buttonText}>{actionLabel}</Text>
         </TouchableOpacity>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }
 

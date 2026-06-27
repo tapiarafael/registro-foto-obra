@@ -8,12 +8,12 @@ import {
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
-import { ActivityIndicator, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import LoadingScreen from "@/components/LoadingScreen";
 import { AppProvider, useApp } from "@/context/AppContext";
 import colors from "@/constants/colors";
 
@@ -35,17 +35,20 @@ function RootLayoutNav() {
   }, [isReady, isSetupComplete, segments, router]);
 
   if (!isReady) {
-    return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.light.background }}>
-        <ActivityIndicator size="large" color={colors.light.primary} />
-      </View>
-    );
+    return <LoadingScreen message="Preparando o aplicativo…" />;
   }
 
   return (
-    <Stack screenOptions={{ headerBackTitle: "Voltar", headerTintColor: colors.light.primary }}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="setup" options={{ headerShown: false }} />
+    <Stack
+      screenOptions={{
+        headerBackTitle: "Voltar",
+        headerTintColor: colors.light.primary,
+        animation: "slide_from_right",
+        animationDuration: 260,
+      }}
+    >
+      <Stack.Screen name="(tabs)" options={{ headerShown: false, animation: "fade" }} />
+      <Stack.Screen name="setup" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen name="registrar" options={{ headerShown: false }} />
       <Stack.Screen name="estrutura" options={{ headerShown: false }} />
       <Stack.Screen name="armazenamento" options={{ title: "Armazenamento", headerShown: true }} />

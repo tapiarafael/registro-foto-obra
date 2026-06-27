@@ -10,6 +10,8 @@ export default function RegistrarLayout() {
         headerTintColor: '#fff',
         headerTitleStyle: { fontWeight: '700' },
         headerBackTitle: 'Voltar',
+        animation: 'slide_from_right',
+        animationDuration: 260,
       }}
     >
       <Stack.Screen name="quadras" options={{ title: 'Selecionar Quadra' }} />
@@ -17,7 +19,7 @@ export default function RegistrarLayout() {
       <Stack.Screen name="pavimentos" options={{ title: 'Selecionar Pavimento' }} />
       <Stack.Screen name="unidades" options={{ title: 'Selecionar Unidade' }} />
       <Stack.Screen name="servicos" options={{ title: 'Selecionar Serviço' }} />
-      <Stack.Screen name="camera" options={{ headerShown: false }} />
+      <Stack.Screen name="camera" options={{ headerShown: false, animation: 'fade_from_bottom' }} />
     </Stack>
   );
 }

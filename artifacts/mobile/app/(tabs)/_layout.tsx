@@ -12,6 +12,7 @@ export default function TabLayout() {
       screenOptions={{
         tabBarActiveTintColor: c.primary,
         tabBarInactiveTintColor: c.mutedForeground,
+        animation: "shift",
         headerShown: true,
         headerStyle: { backgroundColor: c.primary },
         headerTintColor: "#fff",

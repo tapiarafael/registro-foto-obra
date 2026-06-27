@@ -10,6 +10,8 @@ export default function EstruturaLayout() {
         headerTintColor: '#fff',
         headerTitleStyle: { fontWeight: '700' },
         headerBackTitle: 'Voltar',
+        animation: 'slide_from_right',
+        animationDuration: 260,
       }}
     >
       <Stack.Screen name="quadras" options={{ title: 'Quadras' }} />

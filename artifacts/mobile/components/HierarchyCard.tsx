@@ -1,7 +1,16 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import Animated, {
+  FadeIn,
+  LinearTransition,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import colors from '@/constants/colors';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface Props {
   title: string;
@@ -21,12 +30,17 @@ export default function HierarchyCard({
   archived = false, showChevron = true, left, right, photoCount,
 }: Props) {
   const c = colors.light;
+  const scale = useSharedValue(1);
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
-    <TouchableOpacity
-      style={[styles.card, archived && styles.archived]}
+    <AnimatedPressable
+      entering={FadeIn.duration(220)}
+      layout={LinearTransition.duration(220)}
+      style={[styles.card, archived && styles.archived, pressStyle]}
       onPress={onPress}
       onLongPress={onLongPress}
-      activeOpacity={0.7}
+      onPressIn={() => { scale.value = withTiming(0.97, { duration: 90 }); }}
+      onPressOut={() => { scale.value = withTiming(1, { duration: 120 }); }}
       disabled={!onPress}
     >
       {left && <View style={styles.leftSlot}>{left}</View>}
@@ -54,7 +68,7 @@ export default function HierarchyCard({
       ) : showChevron && onPress ? (
         <Feather name="chevron-right" size={20} color={c.mutedForeground} />
       ) : null}
-    </TouchableOpacity>
+    </AnimatedPressable>
   );
 }
 
