@@ -22,7 +22,6 @@
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -30,21 +29,13 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
-      [
-        "expo-router",
-        {
-          "origin": "https://replit.com/"
-        }
-      ],
+      "expo-router",
       [
         "expo-font",
         {
-          "fonts": [
-            "./assets/fonts/Feather.ttf"
-          ]
+          "fonts": ["./assets/fonts/Feather.ttf"]
         }
       ],
-      "expo-web-browser",
       [
         "expo-camera",
         {
@@ -57,7 +48,6 @@
           "photosPermission": "O aplicativo precisa acessar suas fotos para importar imagens da obra."
         }
       ],
-      "@react-native-community/datetimepicker",
       "expo-sqlite"
     ],
     "experiments": {
