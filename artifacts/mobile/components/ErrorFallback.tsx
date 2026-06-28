@@ -20,7 +20,6 @@ export type ErrorFallbackProps = {
 };
 
 export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
-  console.error('[ErrorFallback] caught error:', error?.message, error?.stack?.split('\n')[1]);
   const colors = useColors();
   const insets = useSafeAreaInsets();
 

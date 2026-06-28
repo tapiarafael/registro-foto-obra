@@ -139,11 +139,8 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (_db) return _db;
   if (!_initPromise) {
     _initPromise = (async () => {
-      console.log('[DB] openDatabaseAsync start');
       const db = await SQLite.openDatabaseAsync('obra.db');
-      console.log('[DB] openDatabaseAsync done, running _init');
       await _init(db);
-      console.log('[DB] _init done');
       _db = db;
       return db;
     })().catch(e => {
@@ -155,7 +152,6 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 }
 
 async function _init(db: SQLite.SQLiteDatabase): Promise<void> {
-  console.log('[DB] _init: running DDL execAsync');
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
@@ -281,11 +277,9 @@ async function _init(db: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_unit_floor ON unit(floor_id);
     CREATE INDEX IF NOT EXISTS idx_session_started ON inspection_session(started_at);
   `);
-  console.log('[DB] _init: DDL execAsync done, seeding unit_type if needed');
 
   const check = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM unit_type');
   if (!check || check.count === 0) {
-    console.log('[DB] _init: seeding unit_type');
     await db.execAsync(`
       INSERT INTO unit_type (name, is_system_type, sort_order) VALUES
       ('Apartamento', 1, 1), ('Garagem', 1, 2), ('Área comum', 1, 3),
@@ -295,7 +289,6 @@ async function _init(db: SQLite.SQLiteDatabase): Promise<void> {
       ('Outro', 1, 99);
     `);
   }
-  console.log('[DB] _init: creating app_settings table');
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
@@ -307,11 +300,8 @@ async function _init(db: SQLite.SQLiteDatabase): Promise<void> {
   const photoColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(photo)');
   const hasWatermarkVersion = photoColumns.some(col => col.name === 'watermark_version');
   if (!hasWatermarkVersion) {
-    console.log('[DB] _init: migrating photo table - adding watermark_version column');
     await db.execAsync('ALTER TABLE photo ADD COLUMN watermark_version INTEGER NOT NULL DEFAULT 1');
   }
-
-  console.log('[DB] _init: complete');
 }
 
 // ===== PROJECT =====

@@ -52,7 +52,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [todayPhotoCount, setTodayPhotoCount] = useState(0);
 
   const loadProject = useCallback(async () => {
-    console.log('[AppContext] loadProject start, platform:', Platform.OS);
     try {
       await Promise.race([
         getDatabase(),
@@ -60,23 +59,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setTimeout(() => reject(new Error('db-init-timeout')), Platform.OS === 'web' ? 2000 : 15000),
         ),
       ]);
-      console.log('[AppContext] getDatabase resolved');
       const p = await getProject();
-      console.log('[AppContext] getProject resolved, project:', p?.name ?? 'null');
       setProject(p);
       if (p) {
         const session = await getActiveSession(p.id);
-        console.log('[AppContext] getActiveSession resolved');
         setActiveSession(session);
         const { getTodayPhotoCount } = await import('@/db/database');
         const count = await getTodayPhotoCount();
-        console.log('[AppContext] todayPhotoCount:', count);
         setTodayPhotoCount(count);
       }
     } catch (e) {
-      console.error('[AppContext] loadProject error:', e);
+      console.error('loadProject error:', e);
     } finally {
-      console.log('[AppContext] setIsReady(true)');
       setIsReady(true);
     }
   }, []);
