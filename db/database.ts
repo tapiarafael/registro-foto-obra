@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 import { runMigrations } from './migrate';
+import { toLocalDateString } from '@/services/photoService';
 
 // ===== TYPES =====
 export interface Project {
@@ -104,6 +105,7 @@ export interface Photo {
   thumbnail_filename: string;
   source_type: 'CAMERA' | 'GALLERY';
   captured_at: string;
+  captured_date: string;
   imported_at: string | null;
   timezone_offset: number;
   width: number;
@@ -507,11 +509,12 @@ export async function addPhoto(data: {
 }): Promise<number> {
   const db = await getDatabase();
   const tzOffset = -new Date().getTimezoneOffset();
+  const capturedDate = toLocalDateString(data.capturedAt);
   const r = await db.runAsync(
-    `INSERT INTO photo (photo_group_id,internal_filename,thumbnail_filename,source_type,captured_at,imported_at,timezone_offset,width,height,size_bytes)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO photo (photo_group_id,internal_filename,thumbnail_filename,source_type,captured_at,captured_date,imported_at,timezone_offset,width,height,size_bytes)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     [data.photoGroupId, data.internalFilename, data.thumbnailFilename, data.sourceType,
-     data.capturedAt, data.importedAt ?? null, tzOffset, data.width, data.height, data.sizeBytes]
+     data.capturedAt, capturedDate, data.importedAt ?? null, tzOffset, data.width, data.height, data.sizeBytes]
   );
   return r.lastInsertRowId;
 }
@@ -535,10 +538,11 @@ interface PhotoCountsByDate {
 async function getPhotoCountsByDate(): Promise<PhotoCountsByDate[]> {
   const db = await getDatabase();
   return db.getAllAsync<PhotoCountsByDate>(`
-    SELECT date(p.captured_at,'localtime') as date, COUNT(p.id) as photo_count,
+    SELECT p.captured_date as date, COUNT(p.id) as photo_count,
       SUM(p.size_bytes) as total_bytes, COUNT(DISTINCT pg.inspection_session_id) as session_count
     FROM photo p JOIN photo_group pg ON pg.id=p.photo_group_id
-    GROUP BY date ORDER BY date DESC
+    WHERE p.captured_date IS NOT NULL
+    GROUP BY p.captured_date ORDER BY date DESC
   `);
 }
 
@@ -547,18 +551,21 @@ export async function getDateSummaries(): Promise<DateSummary[]> {
   const [counts, blockCounts] = await Promise.all([
     getPhotoCountsByDate(),
     db.getAllAsync<{ date: string; block_count: number }>(`
-      SELECT date(p.captured_at,'localtime') as date, COUNT(DISTINCT b.id) as block_count
+      SELECT p.captured_date as date, COUNT(DISTINCT b.id) as block_count
       FROM photo p
       JOIN photo_group pg ON pg.id=p.photo_group_id
       JOIN unit u ON u.id=pg.unit_id
       JOIN floor f ON f.id=u.floor_id
       JOIN building bl ON bl.id=f.building_id
       JOIN block b ON b.id=bl.block_id
-      GROUP BY date
+      WHERE p.captured_date IS NOT NULL
+      GROUP BY p.captured_date
     `),
   ]);
   const blockMap = new Map(blockCounts.map(r => [r.date, r.block_count]));
-  return counts.map(r => ({ ...r, block_count: blockMap.get(r.date) ?? 0 }));
+  return counts
+    .filter(r => r.date != null)
+    .map(r => ({ ...r, block_count: blockMap.get(r.date) ?? 0 }));
 }
 
 export async function getBlocksForDate(date: string): Promise<(Block & { photo_count: number })[]> {
@@ -571,7 +578,7 @@ export async function getBlocksForDate(date: string): Promise<(Block & { photo_c
     JOIN unit u ON u.floor_id=f.id
     JOIN photo_group pg ON pg.unit_id=u.id
     JOIN photo p ON p.photo_group_id=pg.id
-    WHERE date(p.captured_at,'localtime')=?
+    WHERE p.captured_date=?
     GROUP BY b.id ORDER BY b.sort_order
   `, [date]);
 }
@@ -585,7 +592,7 @@ export async function getBuildingsForDate(blockId: number, date: string): Promis
     JOIN unit u ON u.floor_id=f.id
     JOIN photo_group pg ON pg.unit_id=u.id
     JOIN photo p ON p.photo_group_id=pg.id
-    WHERE bl.block_id=? AND date(p.captured_at,'localtime')=?
+    WHERE bl.block_id=? AND p.captured_date=?
     GROUP BY bl.id ORDER BY bl.sort_order
   `, [blockId, date]);
 }
@@ -598,7 +605,7 @@ export async function getFloorsForDate(buildingId: number, date: string): Promis
     JOIN unit u ON u.floor_id=f.id
     JOIN photo_group pg ON pg.unit_id=u.id
     JOIN photo p ON p.photo_group_id=pg.id
-    WHERE f.building_id=? AND date(p.captured_at,'localtime')=?
+    WHERE f.building_id=? AND p.captured_date=?
     GROUP BY f.id ORDER BY f.sort_order
   `, [buildingId, date]);
 }
@@ -611,7 +618,7 @@ export async function getUnitsForDate(floorId: number, date: string): Promise<(U
     LEFT JOIN unit_type ut ON ut.id=u.unit_type_id
     JOIN photo_group pg ON pg.unit_id=u.id
     JOIN photo p ON p.photo_group_id=pg.id
-    WHERE u.floor_id=? AND date(p.captured_at,'localtime')=?
+    WHERE u.floor_id=? AND p.captured_date=?
     GROUP BY u.id ORDER BY u.sort_order
   `, [floorId, date]);
 }
@@ -623,7 +630,7 @@ export async function getServicesForDateUnit(unitId: number, date: string): Prom
     FROM service s
     JOIN photo_group pg ON pg.service_id=s.id
     JOIN photo p ON p.photo_group_id=pg.id
-    WHERE pg.unit_id=? AND date(p.captured_at,'localtime')=?
+    WHERE pg.unit_id=? AND p.captured_date=?
     GROUP BY s.id ORDER BY s.sort_order
   `, [unitId, date]);
 }
@@ -639,7 +646,7 @@ export async function getPhotosForDateUnitService(unitId: number, serviceId: num
     JOIN floor f ON f.id=u.floor_id
     JOIN building bl ON bl.id=f.building_id
     JOIN block b ON b.id=bl.block_id
-    WHERE pg.unit_id=? AND pg.service_id=? AND date(p.captured_at,'localtime')=?
+    WHERE pg.unit_id=? AND pg.service_id=? AND p.captured_date=?
     ORDER BY p.captured_at
   `, [unitId, serviceId, date]);
 }
@@ -658,7 +665,7 @@ export async function getPhotosForReport(blockId: number, date: string): Promise
     JOIN floor f ON f.id=u.floor_id
     JOIN building bl ON bl.id=f.building_id
     JOIN block b ON b.id=bl.block_id
-    WHERE b.id=? AND date(p.captured_at,'localtime')=?
+    WHERE b.id=? AND p.captured_date=?
     ORDER BY bl.sort_order, f.sort_order, u.sort_order, s.sort_order, p.captured_at
   `, [blockId, date]);
 }
@@ -672,7 +679,7 @@ export async function getBlockPhotoCountForDate(date: string): Promise<{ block_i
     LEFT JOIN floor f ON f.building_id=bl.id
     LEFT JOIN unit u ON u.floor_id=f.id
     LEFT JOIN photo_group pg ON pg.unit_id=u.id
-    LEFT JOIN photo p ON p.photo_group_id=pg.id AND date(p.captured_at,'localtime')=?
+    LEFT JOIN photo p ON p.photo_group_id=pg.id AND p.captured_date=?
     WHERE b.archived_at IS NULL
     GROUP BY b.id ORDER BY b.sort_order
   `, [date]);
@@ -686,7 +693,7 @@ export async function getStorageStats(): Promise<{
   const db = await getDatabase();
   const r = await db.getFirstAsync<{ total_bytes: number; photo_count: number; oldest_date: string | null; newest_date: string | null }>(
     `SELECT COALESCE(SUM(size_bytes),0) as total_bytes, COUNT(*) as photo_count,
-     MIN(date(captured_at,'localtime')) as oldest_date, MAX(date(captured_at,'localtime')) as newest_date FROM photo`
+     MIN(captured_date) as oldest_date, MAX(captured_date) as newest_date FROM photo`
   );
   return r ?? { total_bytes: 0, photo_count: 0, oldest_date: null, newest_date: null };
 }
@@ -698,7 +705,7 @@ export async function getStorageByDate(): Promise<{ date: string; photo_count: n
 export async function deletePhotosByDate(date: string): Promise<{ filenames: string[] }> {
   const db = await getDatabase();
   const photos = await db.getAllAsync<Photo>(
-    `SELECT p.* FROM photo p WHERE date(p.captured_at,'localtime')=?`, [date]
+    `SELECT p.* FROM photo p WHERE p.captured_date=?`, [date]
   );
   const filenames = photos.flatMap(p => [p.internal_filename, p.thumbnail_filename]);
   const photoIds = photos.map(p => p.id);
@@ -739,7 +746,7 @@ export async function bulkCreateStructure(
 export async function getTodayPhotoCount(): Promise<number> {
   const db = await getDatabase();
   const r = await db.getFirstAsync<{ count: number }>(
-    `SELECT COUNT(*) as count FROM photo WHERE date(captured_at,'localtime')=date('now','localtime')`
+    `SELECT COUNT(*) as count FROM photo WHERE captured_date=date('now','localtime')`
   );
   return r?.count ?? 0;
 }

@@ -110,38 +110,46 @@ export default function HistoricoScreen() {
   };
 
   const openDate = async (d: DateSummary) => {
+    const blocks = await getBlocksForDate(d.date);
     setDate(d.date);
+    setPath({});
+    setItems(blocks);
     setLevel('blocks');
-    setItems(await getBlocksForDate(d.date));
   };
 
   const openHierarchyItem = async (item: HierarchyItem) => {
     if (level === 'services') {
+      const nextPhotos = await getPhotosForDateUnitService(path.unit!.id, item.id, date);
+      setPhotos(nextPhotos);
       setLevel('photos');
-      setPhotos(await getPhotosForDateUnitService(path.unit!.id, item.id, date));
       return;
     }
     if (!isHierarchyLevel(level)) return;
 
     const cfg = LEVEL_CONFIG[level];
     const nextLevel = HIERARCHY_LEVELS[HIERARCHY_LEVELS.indexOf(level) + 1];
-    setPath((p) => ({ ...p, [cfg.pathKey]: { id: item.id, name: item.name } }));
+    const nextPath = { ...path, [cfg.pathKey]: { id: item.id, name: item.name } };
+    const nextItems = await cfg.loadChildren(item, date);
+    setPath(nextPath);
+    setItems(nextItems);
     setLevel(nextLevel);
-    setItems(await cfg.loadChildren(item, date));
   };
 
   const back = async () => {
     if (level === 'blocks') return goDates();
     if (level === 'photos') {
+      const services = await LEVEL_CONFIG.services.loadItems(date, path);
+      setPhotos([]);
+      setItems(services);
       setLevel('services');
-      setItems(await LEVEL_CONFIG.services.loadItems(date, path));
       return;
     }
     if (!isHierarchyLevel(level)) return;
 
     const prevLevel = HIERARCHY_LEVELS[HIERARCHY_LEVELS.indexOf(level) - 1];
+    const prevItems = await LEVEL_CONFIG[prevLevel].loadItems(date, path);
+    setItems(prevItems);
     setLevel(prevLevel);
-    setItems(await LEVEL_CONFIG[prevLevel].loadItems(date, path));
   };
 
   const crumbs = [
@@ -162,7 +170,7 @@ export default function HistoricoScreen() {
           <FlatList
             key="dates"
             data={dates}
-            keyExtractor={(d) => d.date}
+            keyExtractor={(d, index) => d.date ?? `date-${index}`}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => (
               <HierarchyCard
@@ -210,7 +218,7 @@ export default function HistoricoScreen() {
         <FlatList
           key={level}
           data={hierarchyItems}
-          keyExtractor={(x) => String(x.id)}
+          keyExtractor={(x, index) => (x.id != null ? String(x.id) : `item-${index}`)}
           contentContainerStyle={styles.list}
           renderItem={({ item }) => (
             <HierarchyCard
