@@ -3,8 +3,9 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import JSZip from 'jszip';
 import { getPhotosForReport, getAppSetting, type PhotoWithHierarchy } from '@/db/database';
-import { formatDate, formatDateTime, getPhotoUri } from './photoService';
+import { formatDate, formatDateTime, formatDatePart, formatTime, getPhotoUri } from './photoService';
 
+// ── Grouping types ──────────────────────────────────────────────────────────
 type GroupField = 'building' | 'floor' | 'unit' | 'service';
 
 const FIELD_LABELS: Record<GroupField, string> = {
@@ -34,15 +35,21 @@ function getFieldSort(p: PhotoWithHierarchy, field: GroupField): number {
   }
 }
 
+// ── Photo caption field types ────────────────────────────────────────────────
+type PhotoField = 'date' | 'time' | 'block' | 'building' | 'floor' | 'unit' | 'service';
+const ALL_PHOTO_FIELDS: PhotoField[] = ['date', 'time', 'block', 'building', 'floor', 'unit', 'service'];
+
+// ── HTML builders ───────────────────────────────────────────────────────────
 function renderGroupedHTML(
   photos: PhotoWithHierarchy[],
   fields: GroupField[],
   base64Map: Map<string, string>,
   color: string,
+  photoFields: Set<PhotoField>,
   depth = 0,
 ): string {
   if (fields.length === 0 || photos.length === 0) {
-    return renderPhotoGrid(photos, base64Map);
+    return renderPhotoGrid(photos, base64Map, photoFields);
   }
   const [field, ...rest] = fields;
   const groupMap = new Map<string, PhotoWithHierarchy[]>();
@@ -69,12 +76,16 @@ function renderGroupedHTML(
   return sortedKeys.map(key => `
     <div>
       <${tag} style="${headingCSS[level]}">${FIELD_LABELS[field]}: ${escHtml(key)}</${tag}>
-      ${renderGroupedHTML(groupMap.get(key)!, rest, base64Map, color, depth + 1)}
+      ${renderGroupedHTML(groupMap.get(key)!, rest, base64Map, color, photoFields, depth + 1)}
     </div>
   `).join('');
 }
 
-function renderPhotoGrid(photos: PhotoWithHierarchy[], base64Map: Map<string, string>): string {
+function renderPhotoGrid(
+  photos: PhotoWithHierarchy[],
+  base64Map: Map<string, string>,
+  photoFields: Set<PhotoField>,
+): string {
   if (photos.length === 0) return '';
   const rows: string[] = [];
   for (let i = 0; i < photos.length; i += 2) {
@@ -82,14 +93,56 @@ function renderPhotoGrid(photos: PhotoWithHierarchy[], base64Map: Map<string, st
     const p2 = photos[i + 1];
     rows.push(
       `<div style="display:flex;gap:10px;margin-bottom:12px;page-break-inside:avoid;">` +
-      buildPhotoCard(p1, base64Map.get(p1.internal_filename) ?? '') +
-      (p2 ? buildPhotoCard(p2, base64Map.get(p2.internal_filename) ?? '') : '<div style="flex:1;"></div>') +
+      buildPhotoCard(p1, base64Map.get(p1.internal_filename) ?? '', photoFields) +
+      (p2 ? buildPhotoCard(p2, base64Map.get(p2.internal_filename) ?? '', photoFields) : '<div style="flex:1;"></div>') +
       `</div>`
     );
   }
   return rows.join('');
 }
 
+function buildPhotoCard(
+  photo: PhotoWithHierarchy,
+  base64: string,
+  photoFields: Set<PhotoField>,
+): string {
+  const src = base64 ? `data:image/jpeg;base64,${base64}` : '';
+
+  // Compose caption sections
+  const dtParts: string[] = [];
+  if (photoFields.has('date')) dtParts.push(formatDatePart(photo.captured_at));
+  if (photoFields.has('time')) dtParts.push(formatTime(photo.captured_at));
+
+  const locParts: string[] = [];
+  if (photoFields.has('block') && photo.block_name) locParts.push(photo.block_name);
+  if (photoFields.has('building') && photo.building_name) locParts.push(photo.building_name);
+  if (photoFields.has('floor') && photo.floor_name) locParts.push(photo.floor_name);
+
+  const unitParts: string[] = [];
+  if (photoFields.has('unit') && photo.unit_name) unitParts.push(photo.unit_name);
+  if (photoFields.has('service') && photo.service_name) unitParts.push(photo.service_name);
+
+  const captionLines = [
+    dtParts.length ? `<div class="cap-dt">${escHtml(dtParts.join(' '))}</div>` : '',
+    locParts.length ? `<div class="cap-loc">${escHtml(locParts.join(' · '))}</div>` : '',
+    unitParts.length ? `<div class="cap-unit">${escHtml(unitParts.join(' · '))}</div>` : '',
+  ].filter(Boolean);
+
+  return `
+    <div class="photo-card">
+      ${src
+    ? `<img src="${src}" />`
+    : '<div style="height:160px;background:#e0e0e0;display:flex;align-items:center;justify-content:center;color:#999;font-size:10px;">Imagem indisponível</div>'
+  }
+      ${captionLines.length > 0 ? `<div class="info">${captionLines.join('')}</div>` : ''}
+    </div>`;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── PDF export ───────────────────────────────────────────────────────────────
 export async function generatePDF(opts: {
   blockName: string;
   date: string;
@@ -98,12 +151,13 @@ export async function generatePDF(opts: {
   responsibleEngineer?: string | null;
   onProgress?: (current: number, total: number) => void;
 }): Promise<string> {
-  // Load settings
-  const [colorSetting, paginationSetting, logoPathSetting, groupingStr] = await Promise.all([
+  // Load all settings in parallel
+  const [colorSetting, paginationSetting, logoPathSetting, groupingStr, photoFieldsStr] = await Promise.all([
     getAppSetting('report_primaryColor'),
     getAppSetting('report_paginationMode'),
     getAppSetting('report_logoPath'),
     getAppSetting('report_groupingFields'),
+    getAppSetting('report_photoFields'),
   ]);
 
   const primaryColor = colorSetting || '#0D47A1';
@@ -121,11 +175,19 @@ export async function generatePDF(opts: {
     return DEFAULT_GROUPING;
   })();
 
+  const enabledPhotoFields: Set<PhotoField> = (() => {
+    if (!photoFieldsStr) return new Set(ALL_PHOTO_FIELDS);
+    try {
+      const arr = JSON.parse(photoFieldsStr) as PhotoField[];
+      return new Set(Array.isArray(arr) ? arr : ALL_PHOTO_FIELDS);
+    } catch { return new Set(ALL_PHOTO_FIELDS); }
+  })();
+
   // Load photos
   const photos = await getPhotosForReport(opts.blockId, opts.date);
   opts.onProgress?.(0, photos.length);
 
-  // Pre-load all photo base64 into a Map
+  // Pre-load all photo base64 into a Map (single pass)
   const base64Map = new Map<string, string>();
   for (let i = 0; i < photos.length; i++) {
     const p = photos[i];
@@ -159,11 +221,11 @@ export async function generatePDF(opts: {
       ? `@page { @bottom-center { content: 'Página ' counter(page) ' de ' counter(pages); font-size:9px; color:#666; } }`
       : '';
 
-  // Build content
+  // Build body content
   const bodyContent =
     photos.length === 0
       ? '<div style="text-align:center;color:#777;padding:48px 0;">Nenhuma foto registrada nesta data e quadra.</div>'
-      : renderGroupedHTML(photos, groupingFields, base64Map, primaryColor);
+      : renderGroupedHTML(photos, groupingFields, base64Map, primaryColor, enabledPhotoFields);
 
   const logoHTML = logoBase64
     ? `<img src="data:image/jpeg;base64,${logoBase64}" style="height:48px;max-width:140px;object-fit:contain;float:right;margin:0 0 6px 12px;" />`
@@ -184,9 +246,9 @@ export async function generatePDF(opts: {
   .photo-card { flex: 1; border: 1px solid #D9E2EC; border-radius: 6px; overflow: hidden; background: #F5F7FA; }
   .photo-card img { width: 100%; display: block; max-height: 200px; object-fit: cover; }
   .photo-card .info { padding: 6px 8px; }
-  .photo-card .watermark { font-size: 9px; color: #52606D; margin-bottom: 2px; }
-  .photo-card .hier { font-size: 10px; font-weight: bold; color: #17202A; }
-  .photo-card .service { font-size: 9px; color: ${primaryColor}; margin-top: 2px; }
+  .cap-dt { font-size: 9px; color: #52606D; margin-bottom: 2px; }
+  .cap-loc { font-size: 10px; font-weight: bold; color: #17202A; }
+  .cap-unit { font-size: 9px; color: ${primaryColor}; margin-top: 2px; }
   footer { margin-top: 24px; border-top: 1px solid #D9E2EC; padding-top: 10px; font-size: 9px; color: #52606D; text-align: right; }
   ${paginationCSS}
 </style>
@@ -212,29 +274,7 @@ ${bodyContent}
   return result.uri;
 }
 
-function buildPhotoCard(
-  photo: { internal_filename: string; captured_at: string; building_name: string; floor_name: string; unit_name: string; service_name: string },
-  base64: string,
-): string {
-  const src = base64 ? `data:image/jpeg;base64,${base64}` : '';
-  return `
-    <div class="photo-card">
-      ${src
-    ? `<img src="${src}" />`
-    : '<div style="height:160px;background:#e0e0e0;display:flex;align-items:center;justify-content:center;color:#999;font-size:10px;">Imagem indisponível</div>'
-  }
-      <div class="info">
-        <div class="watermark">${escHtml(formatDateTime(photo.captured_at))}</div>
-        <div class="hier">${escHtml(photo.building_name)} · ${escHtml(photo.floor_name)} · ${escHtml(photo.unit_name)}</div>
-        <div class="service">${escHtml(photo.service_name)}</div>
-      </div>
-    </div>`;
-}
-
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
+// ── ZIP export ───────────────────────────────────────────────────────────────
 export async function generateZIP(opts: {
   blockName: string;
   date: string;
