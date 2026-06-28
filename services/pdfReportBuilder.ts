@@ -637,7 +637,7 @@ export async function buildReportPdf(opts: {
   logoPath?: string | null;
   wmConfig: WatermarkConfig;
   onProgress?: (current: number, total: number) => void;
-}): Promise<string> {
+}): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -695,5 +695,5 @@ export async function buildReportPdf(opts: {
 
   opts.onProgress?.(opts.photos.length, opts.photos.length);
 
-  return pdfDoc.saveAsBase64({ objectsPerTick: 50 });
+  return pdfDoc.save({ objectsPerTick: 50 });
 }

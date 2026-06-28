@@ -15,7 +15,24 @@ import HierarchyCard from '@/components/HierarchyCard';
 import EmptyState from '@/components/EmptyState';
 import ProgressModal from '@/components/ProgressModal';
 
-type Progress = { phase: 'reading' | 'rendering'; current: number; total: number };
+const ZIP_PHOTO_WARN_THRESHOLD = 50;
+
+type PdfProgress = { kind: 'pdf'; phase: 'reading' | 'rendering'; current: number; total: number };
+type ZipProgress = { kind: 'zip'; phase: 'photos' | 'finalizing' | 'compressing'; current: number; total: number };
+type Progress = PdfProgress | ZipProgress;
+
+function zipPhaseFromProgress(current: number, total: number): ZipProgress['phase'] {
+  const photoCount = Math.max(0, total - 3);
+  if (current >= total) return 'compressing';
+  if (current <= photoCount) return 'photos';
+  return 'finalizing';
+}
+
+function zipPhaseLabel(phase: ZipProgress['phase']): string {
+  if (phase === 'photos') return 'Adicionando fotos ao ZIP…';
+  if (phase === 'finalizing') return 'Incluindo índice e PDF…';
+  return 'Compactando arquivos…';
+}
 
 export default function RelatoriosScreen() {
   const c = colors.light;
@@ -51,8 +68,22 @@ export default function RelatoriosScreen() {
     await loadBlocksForDate(date);
   };
 
-  const handleProgress = (current: number, total: number) => {
-    setProgress({ phase: current >= total ? 'rendering' : 'reading', current, total });
+  const handlePdfProgress = (current: number, total: number) => {
+    setProgress({
+      kind: 'pdf',
+      phase: current >= total ? 'rendering' : 'reading',
+      current,
+      total,
+    });
+  };
+
+  const handleZipProgress = (current: number, total: number) => {
+    setProgress({
+      kind: 'zip',
+      phase: zipPhaseFromProgress(current, total),
+      current,
+      total,
+    });
   };
 
   const pdfErrorMessage = (e: unknown): string => {
@@ -63,19 +94,43 @@ export default function RelatoriosScreen() {
     return 'Não foi possível gerar o PDF.';
   };
 
+  const zipErrorMessage = (e: unknown): string => {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/OutOfMemory|OOM|memory/i.test(msg)) {
+      return 'Memória insuficiente para gerar o ZIP. Feche outros apps e tente novamente. Se persistir, exporte datas com menos fotos.';
+    }
+    return 'Não foi possível gerar o ZIP.';
+  };
+
+  const confirmLargeZip = (photoCount: number): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (photoCount <= ZIP_PHOTO_WARN_THRESHOLD) {
+        resolve(true);
+        return;
+      }
+      Alert.alert(
+        'Exportação grande',
+        `Este relatório tem ${photoCount} fotos em resolução total. A exportação pode demorar e usar muita memória. Deseja continuar?`,
+        [
+          { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Continuar', onPress: () => resolve(true) },
+        ],
+      );
+    });
+
   const exportPDF = async (block: { block_id: number; block_name: string }, date: string) => {
     const key = `pdf-${block.block_id}-${date}`;
     setBusy(key);
     try {
       const { ready } = await isReportCacheReady(block.block_id, date, 'pdf');
-      if (!ready) setProgress({ phase: 'reading', current: 0, total: 0 });
+      if (!ready) setProgress({ kind: 'pdf', phase: 'reading', current: 0, total: 0 });
       const { uri } = await getOrGeneratePDF({
         projectName: project?.name ?? 'Obra',
         responsibleEngineer: project?.responsible_engineer ?? undefined,
         blockName: block.block_name,
         blockId: block.block_id,
         date,
-        onProgress: ready ? undefined : handleProgress,
+        onProgress: ready ? undefined : handlePdfProgress,
       });
       if (!ready) setProgress(null);
       await shareFile(uri);
@@ -88,19 +143,19 @@ export default function RelatoriosScreen() {
     } finally { setBusy(null); setProgress(null); }
   };
 
-  const exportZIP = async (block: { block_id: number; block_name: string }, date: string) => {
+  const doExportZIP = async (block: { block_id: number; block_name: string }, date: string) => {
     const key = `zip-${block.block_id}-${date}`;
     setBusy(key);
     try {
       const needsProgress = !(await isReportCacheReady(block.block_id, date, 'zip')).ready;
-      if (needsProgress) setProgress({ phase: 'reading', current: 0, total: 0 });
+      if (needsProgress) setProgress({ kind: 'zip', phase: 'photos', current: 0, total: 0 });
       const { uri } = await getOrGenerateZIP({
         projectName: project?.name ?? 'Obra',
         responsibleEngineer: project?.responsible_engineer ?? undefined,
         blockName: block.block_name,
         blockId: block.block_id,
         date,
-        onProgress: needsProgress ? handleProgress : undefined,
+        onProgress: needsProgress ? handleZipProgress : undefined,
       });
       if (needsProgress) setProgress(null);
       await shareFile(uri);
@@ -109,9 +164,22 @@ export default function RelatoriosScreen() {
       }
     } catch (e) {
       console.error('zip error', e);
-      Alert.alert('Erro', 'Não foi possível gerar o ZIP.');
+      Alert.alert('Erro', zipErrorMessage(e));
     } finally { setBusy(null); setProgress(null); }
   };
+
+  const exportZIP = async (block: { block_id: number; block_name: string; photo_count: number }, date: string) => {
+    const ok = await confirmLargeZip(block.photo_count);
+    if (!ok) return;
+    await doExportZIP(block, date);
+  };
+
+  const isZipBusy = busy?.startsWith('zip-');
+  const progressIsDeterminate = progress !== null && (
+    progress.kind === 'pdf'
+      ? progress.phase === 'reading'
+      : progress.phase === 'photos' || progress.phase === 'finalizing'
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -189,13 +257,22 @@ export default function RelatoriosScreen() {
       )}
       <ProgressModal
         visible={progress !== null}
-        title={busy?.startsWith('zip-') ? 'Gerando ZIP' : 'Gerando PDF'}
-        current={progress?.phase === 'reading' ? progress.current : 0}
-        total={progress?.phase === 'reading' ? progress.total : 0}
+        title={isZipBusy ? 'Gerando ZIP' : 'Gerando PDF'}
+        current={progressIsDeterminate ? progress!.current : 0}
+        total={progressIsDeterminate ? progress!.total : 0}
+        phaseLabel={
+          progressIsDeterminate && progress?.kind === 'zip'
+            ? zipPhaseLabel(progress.phase)
+            : undefined
+        }
         indeterminateLabel={
-          progress?.phase === 'rendering'
-            ? (busy?.startsWith('zip-') ? 'Compactando arquivos…' : 'Montando PDF…')
-            : 'Carregando fotos…'
+          progress?.kind === 'zip' && progress.phase === 'compressing'
+            ? 'Compactando arquivos…'
+            : progress?.kind === 'pdf' && progress.phase === 'rendering'
+              ? 'Montando PDF…'
+              : progress?.kind === 'pdf'
+                ? 'Carregando fotos…'
+                : undefined
         }
       />
     </SafeAreaView>

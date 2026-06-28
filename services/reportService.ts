@@ -1,7 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import * as ImageManipulator from 'expo-image-manipulator';
+import { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import JSZip from 'jszip';
 import {
   getPhotosForReport,
   getAppSetting,
@@ -10,16 +9,14 @@ import {
   getPhotoCountForBlockDate,
   getReportConfigHash,
   upsertGeneratedReport,
-  type PhotoWithHierarchy,
-  type WatermarkConfig,
   type GeneratedReport,
 } from '@/db/database';
-import { formatDate, formatDateTime, getPhotoUri, getThumbnailUri, parseStoredTimestamp } from './photoService';
 import {
   buildReportPdf,
   type GroupField,
   type ImageQuality,
 } from './pdfReportBuilder';
+import { buildReportZip } from './zipReportBuilder';
 
 const REPORTS_DIR = FileSystem.documentDirectory + 'reports/';
 const PDF_FILENAME = 'relatorio.pdf';
@@ -44,12 +41,28 @@ async function ensureReportDir(dir: string): Promise<void> {
   }
 }
 
-async function writeFileReplacing(path: string, contents: string, encoding: FileSystem.EncodingType): Promise<void> {
-  const existing = await FileSystem.getInfoAsync(path);
-  if (existing.exists) {
-    await FileSystem.deleteAsync(path, { idempotent: true });
+const BINARY_WRITE_CHUNK = 512 * 1024;
+
+// Writes raw bytes to disk without any base64 conversion, chunking large
+// payloads through a FileHandle so we never allocate a second full-size copy.
+function writeBytesReplacing(path: string, bytes: Uint8Array): void {
+  const file = new File(path);
+  if (file.exists) file.delete();
+  file.create({ overwrite: true });
+
+  if (bytes.length <= BINARY_WRITE_CHUNK) {
+    file.write(bytes);
+    return;
   }
-  await FileSystem.writeAsStringAsync(path, contents, { encoding });
+
+  const handle = file.open();
+  try {
+    for (let i = 0; i < bytes.length; i += BINARY_WRITE_CHUNK) {
+      handle.writeBytes(bytes.subarray(i, Math.min(i + BINARY_WRITE_CHUNK, bytes.length)));
+    }
+  } finally {
+    handle.close();
+  }
 }
 
 async function copyFileReplacing(from: string, to: string): Promise<void> {
@@ -126,68 +139,6 @@ export async function deleteReportArtifactsForDate(reports: GeneratedReport[]): 
 
 const DEFAULT_GROUPING: GroupField[] = ['building', 'floor', 'unit', 'service'];
 
-// ── Image quality ─────────────────────────────────────────────────────────────
-
-const MEDIUM_WIDTH = 800;
-const READ_CONCURRENCY = 4;
-
-// Reads a single photo as base64 according to the chosen report image quality.
-async function loadPhotoBase64(p: PhotoWithHierarchy, quality: ImageQuality): Promise<string> {
-  if (quality === 'fast') {
-    return FileSystem.readAsStringAsync(getThumbnailUri(p.thumbnail_filename), {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-  }
-  if (quality === 'medium') {
-    const result = await ImageManipulator.manipulateAsync(
-      getPhotoUri(p.internal_filename),
-      [{ resize: { width: MEDIUM_WIDTH } }],
-      { format: ImageManipulator.SaveFormat.JPEG, compress: 0.8, base64: true },
-    );
-    return result.base64 ?? '';
-  }
-  return FileSystem.readAsStringAsync(getPhotoUri(p.internal_filename), {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-}
-
-// Loads base64 for all photos using a bounded concurrency pool, reporting
-// progress as each photo completes.
-async function loadAllPhotoBase64(
-  photos: PhotoWithHierarchy[],
-  quality: ImageQuality,
-  onProgress?: (current: number, total: number) => void,
-): Promise<Map<string, string>> {
-  const base64Map = new Map<string, string>();
-  let completed = 0;
-  let cursor = 0;
-
-  async function worker() {
-    while (cursor < photos.length) {
-      const index = cursor++;
-      const p = photos[index];
-      try {
-        const b64 = await loadPhotoBase64(p, quality);
-        if (b64) base64Map.set(p.internal_filename, b64);
-      } catch {}
-      completed++;
-      onProgress?.(completed, photos.length);
-    }
-  }
-
-  const workers = Array.from(
-    { length: Math.min(READ_CONCURRENCY, photos.length) },
-    () => worker(),
-  );
-  await Promise.all(workers);
-  return base64Map;
-}
-
-function isWatermarkFieldOn(wmConfig: WatermarkConfig, key: string): boolean {
-  const f = wmConfig.fields.find(wf => wf.field === key);
-  return f ? f.enabled : true;
-}
-
 // ── PDF export ───────────────────────────────────────────────────────────────
 export async function generatePDF(opts: {
   blockName: string;
@@ -226,7 +177,7 @@ export async function generatePDF(opts: {
   const photos = await getPhotosForReport(opts.blockId, opts.date);
   opts.onProgress?.(0, photos.length);
 
-  const base64 = await buildReportPdf({
+  const pdfBytes = await buildReportPdf({
     projectName: opts.projectName,
     blockName: opts.blockName,
     date: opts.date,
@@ -242,9 +193,7 @@ export async function generatePDF(opts: {
   });
 
   const tempPath = FileSystem.cacheDirectory + `report-${Date.now()}.pdf`;
-  await FileSystem.writeAsStringAsync(tempPath, base64, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
+  writeBytesReplacing(tempPath, pdfBytes);
   return tempPath;
 }
 
@@ -281,95 +230,7 @@ export async function getOrGeneratePDF(
   return { uri: pdfPath, fromCache: false };
 }
 
-// ── ZIP filename builder ──────────────────────────────────────────────────────
-function buildZipFilename(
-  p: PhotoWithHierarchy,
-  seq: string,
-  date: string,
-  wmConfig: WatermarkConfig,
-): string {
-  if (!wmConfig.enabled) return `${date}_${seq}.jpg`;
-
-  const parts: string[] = [date, seq];
-
-  if (isWatermarkFieldOn(wmConfig, 'datetime')) {
-    const d = parseStoredTimestamp(p.captured_at);
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    parts.push(`${hh}-${mm}`);
-  }
-  if (isWatermarkFieldOn(wmConfig, 'quadra') && p.block_name) parts.push(sanitize(p.block_name));
-  if (isWatermarkFieldOn(wmConfig, 'predio') && p.building_name) parts.push(sanitize(p.building_name));
-  if (isWatermarkFieldOn(wmConfig, 'pavimento') && p.floor_name) parts.push(sanitize(p.floor_name));
-  if (isWatermarkFieldOn(wmConfig, 'unidade') && p.unit_name) parts.push(sanitize(p.unit_name));
-  if (isWatermarkFieldOn(wmConfig, 'servico') && p.service_name) parts.push(sanitize(p.service_name));
-
-  return `${parts.join('_')}.jpg`;
-}
-
 // ── ZIP export ───────────────────────────────────────────────────────────────
-async function buildZIPContent(opts: {
-  blockName: string;
-  date: string;
-  blockId: number;
-  projectName: string;
-  pdfPath: string;
-  onProgress?: (current: number, total: number) => void;
-}): Promise<string> {
-  const [photos, wmConfig] = await Promise.all([
-    getPhotosForReport(opts.blockId, opts.date),
-    getWatermarkConfig(),
-  ]);
-  const totalSteps = photos.length + 3;
-  opts.onProgress?.(0, totalSteps);
-
-  const zip = new JSZip();
-  const folderName = buildReportFolderName(opts.date, opts.projectName, opts.blockName);
-  const rootFolder = zip.folder(folderName)!;
-
-  const base64Map = await loadAllPhotoBase64(
-    photos,
-    'high',
-    (current) => opts.onProgress?.(current, totalSteps),
-  );
-
-  const indexLines: string[] = [];
-  let exported = 0;
-
-  for (let i = 0; i < photos.length; i++) {
-    const p = photos[i];
-    const b64 = base64Map.get(p.internal_filename);
-    if (!b64) continue;
-    exported++;
-    const folderPath = `${sanitize(p.building_name)}/${sanitize(p.floor_name)}/${sanitize(p.unit_name)}/${sanitize(p.service_name)}`;
-    const folder = rootFolder.folder(folderPath)!;
-    const seq = String(exported).padStart(3, '0');
-    const filename = buildZipFilename(p, seq, opts.date, wmConfig);
-    folder.file(filename, b64, { base64: true });
-    indexLines.push(`${folderPath}/${filename} — ${formatDateTime(p.captured_at)}`);
-  }
-
-  const skipped = photos.length - exported;
-  let index = `REGISTRO FOTOGRÁFICO DE OBRA\n`;
-  index += `Obra: ${opts.projectName}\nQuadra: ${opts.blockName}\nData: ${formatDate(opts.date)}\n`;
-  index += `Total: ${exported} foto${exported === 1 ? '' : 's'}`;
-  if (skipped > 0) index += ` (${skipped} omitida${skipped === 1 ? '' : 's'})`;
-  index += `\n\n${indexLines.join('\n')}\n`;
-
-  rootFolder.file('indice.txt', index);
-  opts.onProgress?.(photos.length + 1, totalSteps);
-
-  const pdfBase64 = await FileSystem.readAsStringAsync(opts.pdfPath, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  rootFolder.file(PDF_FILENAME, pdfBase64, { base64: true });
-  opts.onProgress?.(photos.length + 2, totalSteps);
-
-  const zipContent = await zip.generateAsync({ type: 'base64', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-  opts.onProgress?.(totalSteps, totalSteps);
-  return zipContent;
-}
-
 export async function generateZIP(opts: {
   blockName: string;
   date: string;
@@ -378,10 +239,9 @@ export async function generateZIP(opts: {
   onProgress?: (current: number, total: number) => void;
 }): Promise<string> {
   const { uri: pdfPath } = await getOrGeneratePDF(opts);
-  const zipContent = await buildZIPContent({ ...opts, pdfPath });
   const folderName = buildReportFolderName(opts.date, opts.projectName, opts.blockName);
   const zipPath = FileSystem.cacheDirectory + `${folderName}.zip`;
-  await FileSystem.writeAsStringAsync(zipPath, zipContent, { encoding: FileSystem.EncodingType.Base64 });
+  await buildReportZip({ ...opts, pdfPath, destPath: zipPath });
   return zipPath;
 }
 
@@ -400,9 +260,8 @@ export async function getOrGenerateZIP(
   }
 
   const { uri: pdfPath } = await getOrGeneratePDF(opts, options);
-  const zipContent = await buildZIPContent({ ...opts, pdfPath });
   await ensureReportDir(reportDir);
-  await writeFileReplacing(zipPath, zipContent, FileSystem.EncodingType.Base64);
+  await buildReportZip({ ...opts, pdfPath, destPath: zipPath });
 
   const [photoCount, configHash] = await Promise.all([
     getPhotoCountForBlockDate(opts.blockId, opts.date),

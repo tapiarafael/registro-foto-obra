@@ -50,14 +50,20 @@ pnpm build:production
 - Expo SDK 54 / React Native, expo-router
 - Local DB: expo-sqlite (`obra.db`, on-device)
 - Photos: expo-camera, expo-image-manipulator, file storage via `expo-file-system/legacy`
-- Export: expo-print (PDF), jszip + expo-sharing (ZIP)
+- Export: pdf-lib (PDF), fflate + expo-sharing (ZIP)
+
+## Export notes
+
+ZIP exports include the on-disk photos (stored, not recompressed). The archive is streamed entry-by-entry straight to disk via fflate's streaming `Zip` + the `expo-file-system` `FileHandle.writeBytes` API, so peak memory stays at roughly one photo regardless of report size. This scales to hundreds of photos per report on low-RAM Android devices.
 
 ## Where things live
 
-- `db/database.ts` — SQLite schema + all CRUD (source of truth for data model)
+- `db/database.ts` — SQLite CRUD (source of truth for data model)
+- `db/migrate.ts` + `db/migrations/` — versioned schema migrations (`PRAGMA user_version`)
 - `context/AppContext.tsx` — `useApp()` global state (project, session, today count)
 - `services/photoService.ts` — photo capture/storage/watermark helpers
 - `services/reportService.ts` — PDF + ZIP generation (fetches photos internally)
+- `services/zipReportBuilder.ts` — streaming ZIP assembly (fflate, written directly to disk)
 - `constants/colors.ts` — theme (`colors.light.*`, `colors.radius`)
 - `app/` — expo-router routes: `setup`, `(tabs)`, `registrar/*`, `estrutura/*`
 
@@ -66,7 +72,7 @@ pnpm build:production
 - Fully offline by design: no auth, no network, no cloud. All data in on-device SQLite; photos under `documentDirectory/photos/`.
 - Hierarchy: Quadra → Prédio → Pavimento → Unidade → Serviço, each with its own CRUD + capture flow.
 - Watermark (date/time) is rendered live on the camera overlay and baked into PDF/ZIP exports.
-- Uses `expo-file-system/legacy` (v19 still ships it); the new v56 API is not used. `getInfoAsync` must not be passed `{size:true}`.
+- Uses `expo-file-system/legacy` for most file I/O; ZIP output uses the new `expo-file-system` `File.write(Uint8Array)` API to avoid base64 OOM on large exports.
 - `metro.config.js` adds `wasm` to `assetExts` so the web bundle resolves expo-sqlite's wa-sqlite.wasm.
 
 ## User preferences
@@ -78,3 +84,11 @@ pnpm build:production
 
 - Web preview is for visual checks only — expo-sqlite/camera/print/sharing don't run on web; SQLite init is guarded by a web-only 2s timeout in `AppContext` so the UI still renders. Verify real behavior on Android.
 - After changing package versions, run `pnpm exec expo install --fix` to keep versions aligned with SDK 54.
+
+## Planned work
+
+Implementation plans and status for larger improvements live in [`docs/tasks/README.md`](docs/tasks/README.md).
+
+**Done:** migration system, `captured_date`, clone batching, PDF via pdf-lib, report disk cache.
+
+**Next up:** test suite (Task 06), then `photo_group` UNIQUE, CI, and capture navigation polish.

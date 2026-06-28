@@ -3,6 +3,7 @@
 **Priority:** Medium–High (large exports)  
 **Effort:** 2–4 days  
 **Risk:** Medium  
+**Status:** Pending — **highest-priority remaining user-facing task**  
 **Recommended order:** After PDF pdf-lib rewrite (Task 04 follow-up)
 
 ## Context
