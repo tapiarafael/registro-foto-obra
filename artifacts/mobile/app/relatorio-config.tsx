@@ -13,7 +13,6 @@ import colors from '@/constants/colors';
 // ── Types ────────────────────────────────────────────────────────────────────
 type PaginationMode = 'none' | 'current' | 'current_total';
 type GroupField = 'building' | 'floor' | 'unit' | 'service';
-type PhotoField = 'date' | 'time' | 'block' | 'building' | 'floor' | 'unit' | 'service';
 
 interface GroupingItem {
   field: GroupField;
@@ -45,29 +44,6 @@ const PAGINATION_OPTIONS: { key: PaginationMode; label: string }[] = [
   { key: 'current_total', label: 'Página e total (ex: 3 / 12)' },
 ];
 
-const PHOTO_FIELDS: { key: PhotoField; label: string }[] = [
-  { key: 'date', label: 'Data' },
-  { key: 'time', label: 'Horário' },
-  { key: 'block', label: 'Quadra' },
-  { key: 'building', label: 'Prédio' },
-  { key: 'floor', label: 'Pavimento' },
-  { key: 'unit', label: 'Unidade' },
-  { key: 'service', label: 'Serviço' },
-];
-
-const ALL_PHOTO_FIELDS: PhotoField[] = PHOTO_FIELDS.map(f => f.key);
-
-// Sample data for the preview
-const PREVIEW = {
-  date: '27/06/2026',
-  time: '14:35',
-  block: 'Quadra A',
-  building: 'Prédio 01',
-  floor: '2º Pav.',
-  unit: 'Apt 204',
-  service: 'Hidráulica',
-};
-
 function isValidHex(s: string): boolean {
   return /^#[0-9A-Fa-f]{6}$/.test(s);
 }
@@ -82,16 +58,14 @@ export default function RelatorioConfig() {
   const [logoPath, setLogoPath] = useState<string | null>(null);
   const [logoPickBusy, setLogoPickBusy] = useState(false);
   const [grouping, setGrouping] = useState<GroupingItem[]>(DEFAULT_GROUPING);
-  const [photoFields, setPhotoFields] = useState<Set<PhotoField>>(new Set(ALL_PHOTO_FIELDS));
 
   useEffect(() => {
     (async () => {
-      const [color, pagination, logo, groupingStr, photoFieldsStr] = await Promise.all([
+      const [color, pagination, logo, groupingStr] = await Promise.all([
         getAppSetting('report_primaryColor'),
         getAppSetting('report_paginationMode'),
         getAppSetting('report_logoPath'),
         getAppSetting('report_groupingFields'),
-        getAppSetting('report_photoFields'),
       ]);
       if (color) { setPrimaryColor(color); setCustomHex(color); }
       if (pagination) setPaginationMode(pagination as PaginationMode);
@@ -109,12 +83,6 @@ export default function RelatorioConfig() {
               enabled: p.enabled,
             })));
           }
-        } catch {}
-      }
-      if (photoFieldsStr) {
-        try {
-          const arr = JSON.parse(photoFieldsStr) as PhotoField[];
-          if (Array.isArray(arr)) setPhotoFields(new Set(arr));
         } catch {}
       }
       setLoading(false);
@@ -212,31 +180,6 @@ export default function RelatorioConfig() {
     g[i] = { ...g[i], enabled: !g[i].enabled };
     saveGrouping(g);
   };
-
-  // ── Photo fields ───────────────────────────────────────────────────────────
-  const togglePhotoField = useCallback(async (key: PhotoField) => {
-    const newFields = new Set(photoFields);
-    if (newFields.has(key)) newFields.delete(key);
-    else newFields.add(key);
-    setPhotoFields(newFields);
-    await setAppSetting('report_photoFields', JSON.stringify(Array.from(newFields)));
-  }, [photoFields]);
-
-  // Preview caption lines (computed from current photoFields)
-  const prevDt = [
-    photoFields.has('date') ? PREVIEW.date : '',
-    photoFields.has('time') ? PREVIEW.time : '',
-  ].filter(Boolean).join(' ');
-  const prevLoc = [
-    photoFields.has('block') ? PREVIEW.block : '',
-    photoFields.has('building') ? PREVIEW.building : '',
-    photoFields.has('floor') ? PREVIEW.floor : '',
-  ].filter(Boolean).join(' · ');
-  const prevUnit = [
-    photoFields.has('unit') ? PREVIEW.unit : '',
-    photoFields.has('service') ? PREVIEW.service : '',
-  ].filter(Boolean).join(' · ');
-  const hasPreview = prevDt || prevLoc || prevUnit;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) {
@@ -347,39 +290,6 @@ export default function RelatorioConfig() {
           ))}
         </View>
 
-        {/* ── Informações nas fotos ── */}
-        <Text style={s.sectionTitle}>Informações exibidas nas fotos</Text>
-        <View style={s.card}>
-          <Text style={s.groupHint}>Escolha quais dados aparecem sob cada foto no relatório PDF. As fotos originais não são modificadas.</Text>
-          {PHOTO_FIELDS.map(({ key, label }) => (
-            <TouchableOpacity key={key} style={s.pfRow} onPress={() => togglePhotoField(key)}>
-              <View style={[s.checkboxInner, photoFields.has(key) && s.checkboxActive]}>
-                {photoFields.has(key) && <Feather name="check" size={12} color="#fff" />}
-              </View>
-              <Text style={[s.pfLabel, !photoFields.has(key) && s.pfLabelOff]}>{label}</Text>
-            </TouchableOpacity>
-          ))}
-
-          {/* Live preview */}
-          <Text style={s.previewTitle}>Prévia</Text>
-          <View style={s.previewCard}>
-            <View style={s.previewPhoto}>
-              <Feather name="image" size={24} color="#9CA3AF" />
-            </View>
-            {hasPreview ? (
-              <View style={s.previewInfo}>
-                {prevDt ? <Text style={s.previewDt}>{prevDt}</Text> : null}
-                {prevLoc ? <Text style={s.previewLoc}>{prevLoc}</Text> : null}
-                {prevUnit ? <Text style={[s.previewUnit, { color: primaryColor }]}>{prevUnit}</Text> : null}
-              </View>
-            ) : (
-              <View style={s.previewEmpty}>
-                <Text style={s.previewEmptyTxt}>Sem informações — apenas a foto</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
         <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
@@ -432,18 +342,4 @@ const s = StyleSheet.create({
   groupLabelOff: { color: c.mutedForeground, textDecorationLine: 'line-through' },
   arrows: { flexDirection: 'row' },
   arrowBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  // Photo fields
-  pfRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, minHeight: 48 },
-  pfLabel: { flex: 1, fontSize: 15, color: c.foreground },
-  pfLabelOff: { color: c.mutedForeground },
-  // Preview
-  previewTitle: { fontSize: 12, fontWeight: '600', color: c.mutedForeground, marginTop: 14, marginBottom: 8 },
-  previewCard: { borderWidth: 1, borderColor: c.border, borderRadius: colors.radius, overflow: 'hidden', backgroundColor: '#F5F7FA' },
-  previewPhoto: { height: 64, backgroundColor: '#D1D5DB', alignItems: 'center', justifyContent: 'center' },
-  previewInfo: { padding: 7 },
-  previewDt: { fontSize: 10, color: '#52606D', marginBottom: 2 },
-  previewLoc: { fontSize: 11, fontWeight: '700', color: '#17202A' },
-  previewUnit: { fontSize: 10, marginTop: 2 },
-  previewEmpty: { padding: 10, alignItems: 'center' },
-  previewEmptyTxt: { fontSize: 12, color: c.mutedForeground, fontStyle: 'italic' },
 });

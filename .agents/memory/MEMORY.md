@@ -4,3 +4,4 @@
 - [capture (registrar) flow conventions](capture-flow.md) — camera pushed from servicos; done uses router.back(); "done today" badge via *ForDate queries + todayDateString; shutterSound:false.
 - [vector icon fonts must be preloaded](icon-fonts.md) — @expo/vector-icons lazy-loads; preload `...Feather.font` in root useFonts or glyphs break on some devices.
 - [Enhancement v1.1 patterns](enhancement-v1-1.md) — gerador range/ordinal, clone modal pattern, app_settings table, report settings screen conventions.
+- [expo-router subdirectory crash](expo-router-subdirectory.md) — bare app/ subdirs without _layout.tsx silently crash Android at startup (expo-router v6)
