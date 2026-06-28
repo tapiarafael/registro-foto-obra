@@ -97,8 +97,24 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** SQLite datetime('now') and legacy rows: UTC without timezone suffix. */
+const SQLITE_UTC_DATETIME = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/;
+
+export function nowIsoTimestamp(): string {
+  return new Date().toISOString();
+}
+
+export function parseStoredTimestamp(value: string): Date {
+  const trimmed = value.trim();
+  const sqliteMatch = SQLITE_UTC_DATETIME.exec(trimmed);
+  if (sqliteMatch) {
+    return new Date(`${sqliteMatch[1]}T${sqliteMatch[2]}Z`);
+  }
+  return new Date(trimmed);
+}
+
 export function formatDateTime(isoString: string): string {
-  const d = new Date(isoString);
+  const d = parseStoredTimestamp(isoString);
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const year = d.getFullYear();
@@ -116,12 +132,12 @@ export function formatDate(isoString: string): string {
 }
 
 export function formatDatePart(isoString: string): string {
-  const d = new Date(isoString);
+  const d = parseStoredTimestamp(isoString);
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 }
 
 export function formatTime(isoString: string): string {
-  const d = new Date(isoString);
+  const d = parseStoredTimestamp(isoString);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
@@ -165,7 +181,7 @@ export function todayDateString(): string {
 }
 
 export function toLocalDateString(iso: string): string {
-  const d = new Date(iso);
+  const d = parseStoredTimestamp(iso);
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${month}-${day}`;

@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 import { runMigrations } from './migrate';
-import { toLocalDateString } from '@/services/photoService';
+import { nowIsoTimestamp, todayDateString, toLocalDateString } from '@/services/photoService';
 
 // ===== TYPES =====
 export interface Project {
@@ -566,9 +566,10 @@ export async function deleteService(id: number): Promise<void> {
 export async function startSession(projectId: number): Promise<number> {
   const db = await getDatabase();
   const tzOffset = -new Date().getTimezoneOffset();
+  const startedAt = nowIsoTimestamp();
   const r = await db.runAsync(
-    'INSERT INTO inspection_session (project_id, started_at, timezone_offset) VALUES (?,datetime("now"),?)',
-    [projectId, tzOffset]
+    'INSERT INTO inspection_session (project_id, started_at, timezone_offset) VALUES (?,?,?)',
+    [projectId, startedAt, tzOffset]
   );
   return r.lastInsertRowId;
 }
@@ -578,9 +579,9 @@ export async function getActiveSession(projectId: number): Promise<InspectionSes
   return db.getFirstAsync<InspectionSession>(
     `SELECT * FROM inspection_session
      WHERE project_id=? AND finished_at IS NULL
-     AND date(started_at,'localtime')=date('now','localtime')
+     AND date(started_at,'localtime')=?
      ORDER BY started_at DESC LIMIT 1`,
-    [projectId]
+    [projectId, todayDateString()]
   );
 }
 
@@ -591,7 +592,7 @@ export async function getSessionById(id: number): Promise<InspectionSession | nu
 
 export async function finishSession(id: number): Promise<void> {
   const db = await getDatabase();
-  await db.runAsync(`UPDATE inspection_session SET finished_at=datetime('now') WHERE id=?`, [id]);
+  await db.runAsync(`UPDATE inspection_session SET finished_at=? WHERE id=?`, [nowIsoTimestamp(), id]);
 }
 
 // ===== PHOTO GROUPS =====
@@ -851,17 +852,18 @@ export async function upsertGeneratedReport(data: {
   const existing = await getGeneratedReport(data.blockId, data.date);
   const pdfPath = data.pdfPath !== undefined ? data.pdfPath : existing?.pdf_path ?? null;
   const zipPath = data.zipPath !== undefined ? data.zipPath : existing?.zip_path ?? null;
+  const generatedAt = nowIsoTimestamp();
   await db.runAsync(`
     INSERT INTO generated_report (report_date, block_id, photo_count, config_hash, pdf_path, zip_path, generated_at, status)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 'ready')
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'ready')
     ON CONFLICT(block_id, report_date) DO UPDATE SET
       photo_count=excluded.photo_count,
       config_hash=excluded.config_hash,
       pdf_path=excluded.pdf_path,
       zip_path=excluded.zip_path,
-      generated_at=datetime('now'),
+      generated_at=excluded.generated_at,
       status='ready'
-  `, [data.date, data.blockId, data.photoCount, data.configHash, pdfPath, zipPath]);
+  `, [data.date, data.blockId, data.photoCount, data.configHash, pdfPath, zipPath, generatedAt]);
 }
 
 export async function deleteGeneratedReportsForDate(date: string): Promise<GeneratedReport[]> {

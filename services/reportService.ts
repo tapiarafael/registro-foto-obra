@@ -14,7 +14,7 @@ import {
   type WatermarkConfig,
   type GeneratedReport,
 } from '@/db/database';
-import { formatDate, formatDateTime, getPhotoUri, getThumbnailUri } from './photoService';
+import { formatDate, formatDateTime, getPhotoUri, getThumbnailUri, parseStoredTimestamp } from './photoService';
 import {
   buildReportPdf,
   type GroupField,
@@ -293,7 +293,7 @@ function buildZipFilename(
   const parts: string[] = [date, seq];
 
   if (isWatermarkFieldOn(wmConfig, 'datetime')) {
-    const d = new Date(p.captured_at);
+    const d = parseStoredTimestamp(p.captured_at);
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     parts.push(`${hh}-${mm}`);
