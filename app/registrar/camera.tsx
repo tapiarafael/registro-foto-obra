@@ -10,12 +10,14 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useRegistrarHome } from '@/hooks/useRegistrarHome';
 import { addPhoto, deletePhoto, getPhotosInGroup, getWatermarkConfig, type Photo, type WatermarkConfig } from '@/db/database';
 import { savePhoto, getPhotoUri, getThumbnailUri, formatDateTime, deletePhotoFiles } from '@/services/photoService';
 
 export default function CameraScreen() {
   const c = colors.light;
   const router = useRouter();
+  const goHome = useRegistrarHome();
   const { captureNav, incrementTodayCount } = useApp();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -145,7 +147,7 @@ export default function CameraScreen() {
 
       <SafeAreaView style={styles.overlay} pointerEvents="box-none">
         <View style={styles.topBar}>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => router.back()} accessibilityLabel="Voltar">
             <Feather name="arrow-left" size={22} color="#fff" />
           </TouchableOpacity>
           <View style={styles.topInfo}>
@@ -154,6 +156,9 @@ export default function CameraScreen() {
               {captureNav.block?.name} · {captureNav.building?.name} · {captureNav.floor?.name} · {captureNav.unit?.name}
             </Text>
           </View>
+          <TouchableOpacity style={styles.iconBtn} onPress={goHome} accessibilityLabel="Início">
+            <Feather name="home" size={20} color="#fff" />
+          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.iconBtn, flash !== 'off' && styles.iconBtnActive]}
             onPress={cycleFlash}

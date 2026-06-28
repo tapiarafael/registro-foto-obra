@@ -1,6 +1,29 @@
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import React from 'react';
+import { Pressable } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import colors from '@/constants/colors';
+import { useApp } from '@/context/AppContext';
+
+function HeaderHomeButton() {
+  const router = useRouter();
+  const { resetCaptureNav } = useApp();
+
+  return (
+    <Pressable
+      onPress={() => {
+        resetCaptureNav();
+        router.replace('/(tabs)');
+      }}
+      style={{ marginRight: 12, padding: 8 }}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel="Início"
+    >
+      <Feather name="home" size={22} color="#fff" />
+    </Pressable>
+  );
+}
 
 export default function RegistrarLayout() {
   return (
@@ -10,6 +33,7 @@ export default function RegistrarLayout() {
         headerTintColor: '#fff',
         headerTitleStyle: { fontWeight: '700' },
         headerBackTitle: 'Voltar',
+        headerRight: () => <HeaderHomeButton />,
         animation: 'fade',
         animationDuration: 180,
       }}

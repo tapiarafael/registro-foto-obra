@@ -12,6 +12,7 @@ import {
 import { getPhotoUri, getThumbnailUri, formatDateLong, formatDateTime } from '@/services/photoService';
 import HierarchyCard from '@/components/HierarchyCard';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
+import HierarchyNavBar from '@/components/HierarchyNavBar';
 import EmptyState from '@/components/EmptyState';
 
 type Level = 'dates' | 'blocks' | 'buildings' | 'floors' | 'units' | 'services' | 'photos';
@@ -76,15 +77,20 @@ function isHierarchyLevel(level: Level): level is HierarchyLevel {
   return HIERARCHY_LEVELS.includes(level as HierarchyLevel);
 }
 
-function BackButton({ onPress }: { onPress: () => void }) {
-  return (
-    <View style={styles.backRow}>
-      <TouchableOpacity style={styles.backBtn} onPress={onPress}>
-        <Feather name="arrow-left" size={18} color={c.primary} />
-        <Text style={styles.backText}>Voltar</Text>
-      </TouchableOpacity>
-    </View>
-  );
+const PATH_KEYS_BY_LEVEL: Record<HierarchyLevel, (keyof PathState)[]> = {
+  blocks: [],
+  buildings: ['block'],
+  floors: ['block', 'building'],
+  units: ['block', 'building', 'floor'],
+  services: ['block', 'building', 'floor', 'unit'],
+};
+
+function pathForLevel(path: PathState, targetLevel: HierarchyLevel): PathState {
+  const result: PathState = {};
+  for (const key of PATH_KEYS_BY_LEVEL[targetLevel]) {
+    if (path[key]) result[key] = path[key];
+  }
+  return result;
 }
 
 const ListSeparator = () => <View style={styles.listSeparator} />;
@@ -149,7 +155,9 @@ export default function HistoricoScreen() {
     if (!isHierarchyLevel(level)) return;
 
     const prevLevel = HIERARCHY_LEVELS[HIERARCHY_LEVELS.indexOf(level) - 1];
-    const prevItems = await LEVEL_CONFIG[prevLevel].loadItems(date, path);
+    const trimmedPath = pathForLevel(path, prevLevel);
+    const prevItems = await LEVEL_CONFIG[prevLevel].loadItems(date, trimmedPath);
+    setPath(trimmedPath);
     setItems(prevItems);
     setLevel(prevLevel);
   };
@@ -194,7 +202,7 @@ export default function HistoricoScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <BackButton onPress={back} />
+      <HierarchyNavBar onBack={back} onHome={goDates} />
       <BreadcrumbBar items={crumbs} />
       {level === 'photos' ? (
         photos.length === 0 ? (
@@ -277,9 +285,6 @@ const styles = StyleSheet.create({
   gridImg: { width: '100%', height: '100%' },
   gridBadge: { position: 'absolute', bottom: 4, left: 4, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   gridBadgeText: { color: '#fff', fontSize: 10, fontWeight: '600' },
-  backRow: { paddingHorizontal: 12, paddingTop: 10 },
-  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6 },
-  backText: { color: c.primary, fontSize: 15, fontWeight: '600' },
 });
 
 const pStyles = StyleSheet.create({
