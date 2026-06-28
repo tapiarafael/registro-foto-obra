@@ -276,6 +276,10 @@ async function _init(db: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_floor_building ON floor(building_id);
     CREATE INDEX IF NOT EXISTS idx_unit_floor ON unit(floor_id);
     CREATE INDEX IF NOT EXISTS idx_session_started ON inspection_session(started_at);
+    CREATE INDEX IF NOT EXISTS idx_photo_group_id ON photo(photo_group_id);
+    CREATE INDEX IF NOT EXISTS idx_block_project ON block(project_id);
+    CREATE INDEX IF NOT EXISTS idx_service_project ON service(project_id);
+    CREATE INDEX IF NOT EXISTS idx_session_project ON inspection_session(project_id);
   `);
 
   const check = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM unit_type');
@@ -328,20 +332,11 @@ export async function updateProject(data: Partial<Project>): Promise<void> {
 }
 
 // ===== BLOCKS (QUADRAS) =====
-export async function getBlocks(projectId: number, includeArchived = false): Promise<Block[]> {
+export async function getBlocksLite(projectId: number, includeArchived = false): Promise<Block[]> {
   const db = await getDatabase();
   const where = includeArchived ? '' : 'AND b.archived_at IS NULL';
   return db.getAllAsync<Block>(`
-    SELECT b.*,
-      (SELECT COUNT(*) FROM building WHERE block_id=b.id AND archived_at IS NULL) as building_count,
-      (SELECT COUNT(*) FROM photo p2
-       JOIN photo_group pg2 ON pg2.id=p2.photo_group_id
-       JOIN unit u2 ON u2.id=pg2.unit_id
-       JOIN floor f2 ON f2.id=u2.floor_id
-       JOIN building b2 ON b2.id=f2.building_id
-       WHERE b2.block_id=b.id AND date(p2.captured_at,'localtime')=date('now','localtime')
-      ) as photo_count_today
-    FROM block b WHERE b.project_id=? ${where}
+    SELECT b.* FROM block b WHERE b.project_id=? ${where}
     ORDER BY b.sort_order, b.id
   `, [projectId]);
 }
@@ -375,30 +370,24 @@ export async function deleteBlock(id: number): Promise<void> {
     JOIN photo_group pg ON pg.id=p.photo_group_id JOIN unit u ON u.id=pg.unit_id
     JOIN floor f ON f.id=u.floor_id JOIN building b ON b.id=f.building_id WHERE b.block_id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos nesta quadra.');
-  await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
-    SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id JOIN building b ON b.id=f.building_id WHERE b.block_id=?)`, [id]);
-  await db.runAsync(`DELETE FROM unit WHERE floor_id IN (
-    SELECT f.id FROM floor f JOIN building b ON b.id=f.building_id WHERE b.block_id=?)`, [id]);
-  await db.runAsync('DELETE FROM floor WHERE building_id IN (SELECT id FROM building WHERE block_id=?)', [id]);
-  await db.runAsync('DELETE FROM building WHERE block_id=?', [id]);
-  await db.runAsync('DELETE FROM generated_report WHERE block_id=?', [id]);
-  await db.runAsync('DELETE FROM block WHERE id=?', [id]);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
+      SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id JOIN building b ON b.id=f.building_id WHERE b.block_id=?)`, [id]);
+    await db.runAsync(`DELETE FROM unit WHERE floor_id IN (
+      SELECT f.id FROM floor f JOIN building b ON b.id=f.building_id WHERE b.block_id=?)`, [id]);
+    await db.runAsync('DELETE FROM floor WHERE building_id IN (SELECT id FROM building WHERE block_id=?)', [id]);
+    await db.runAsync('DELETE FROM building WHERE block_id=?', [id]);
+    await db.runAsync('DELETE FROM generated_report WHERE block_id=?', [id]);
+    await db.runAsync('DELETE FROM block WHERE id=?', [id]);
+  });
 }
 
 // ===== BUILDINGS (PRÉDIOS) =====
-export async function getBuildings(blockId: number, includeArchived = false): Promise<Building[]> {
+export async function getBuildingsLite(blockId: number, includeArchived = false): Promise<Building[]> {
   const db = await getDatabase();
   const where = includeArchived ? '' : 'AND b.archived_at IS NULL';
   return db.getAllAsync<Building>(`
-    SELECT b.*,
-      (SELECT COUNT(*) FROM floor WHERE building_id=b.id AND archived_at IS NULL) as floor_count,
-      (SELECT COUNT(*) FROM photo p2
-       JOIN photo_group pg2 ON pg2.id=p2.photo_group_id
-       JOIN unit u2 ON u2.id=pg2.unit_id
-       JOIN floor f2 ON f2.id=u2.floor_id
-       WHERE f2.building_id=b.id AND date(p2.captured_at,'localtime')=date('now','localtime')
-      ) as photo_count_today
-    FROM building b WHERE b.block_id=? ${where}
+    SELECT b.* FROM building b WHERE b.block_id=? ${where}
     ORDER BY b.sort_order, b.id
   `, [blockId]);
 }
@@ -428,11 +417,13 @@ export async function deleteBuilding(id: number): Promise<void> {
     JOIN photo_group pg ON pg.id=p.photo_group_id JOIN unit u ON u.id=pg.unit_id
     JOIN floor f ON f.id=u.floor_id WHERE f.building_id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos neste prédio.');
-  await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
-    SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id WHERE f.building_id=?)`, [id]);
-  await db.runAsync('DELETE FROM unit WHERE floor_id IN (SELECT id FROM floor WHERE building_id=?)', [id]);
-  await db.runAsync('DELETE FROM floor WHERE building_id=?', [id]);
-  await db.runAsync('DELETE FROM building WHERE id=?', [id]);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
+      SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id WHERE f.building_id=?)`, [id]);
+    await db.runAsync('DELETE FROM unit WHERE floor_id IN (SELECT id FROM floor WHERE building_id=?)', [id]);
+    await db.runAsync('DELETE FROM floor WHERE building_id=?', [id]);
+    await db.runAsync('DELETE FROM building WHERE id=?', [id]);
+  });
 }
 
 export async function duplicateBuilding(sourceId: number, targetBlockId: number, newName: string): Promise<number> {
@@ -456,13 +447,11 @@ export async function duplicateBuilding(sourceId: number, targetBlockId: number,
 }
 
 // ===== FLOORS (PAVIMENTOS) =====
-export async function getFloors(buildingId: number, includeArchived = false): Promise<Floor[]> {
+export async function getFloorsLite(buildingId: number, includeArchived = false): Promise<Floor[]> {
   const db = await getDatabase();
   const where = includeArchived ? '' : 'AND archived_at IS NULL';
   return db.getAllAsync<Floor>(`
-    SELECT f.*,
-      (SELECT COUNT(*) FROM unit WHERE floor_id=f.id AND archived_at IS NULL) as unit_count
-    FROM floor f WHERE f.building_id=? ${where} ORDER BY f.sort_order, f.id
+    SELECT f.* FROM floor f WHERE f.building_id=? ${where} ORDER BY f.sort_order, f.id
   `, [buildingId]);
 }
 
@@ -492,9 +481,11 @@ export async function deleteFloor(id: number): Promise<void> {
     SELECT COUNT(*) as count FROM photo p
     JOIN photo_group pg ON pg.id=p.photo_group_id JOIN unit u ON u.id=pg.unit_id WHERE u.floor_id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos neste pavimento.');
-  await db.runAsync('DELETE FROM photo_group WHERE unit_id IN (SELECT id FROM unit WHERE floor_id=?)', [id]);
-  await db.runAsync('DELETE FROM unit WHERE floor_id=?', [id]);
-  await db.runAsync('DELETE FROM floor WHERE id=?', [id]);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM photo_group WHERE unit_id IN (SELECT id FROM unit WHERE floor_id=?)', [id]);
+    await db.runAsync('DELETE FROM unit WHERE floor_id=?', [id]);
+    await db.runAsync('DELETE FROM floor WHERE id=?', [id]);
+  });
 }
 
 export async function duplicateFloor(sourceFloorId: number, targetBuildingId: number, newName: string, sortOrder: number): Promise<number> {
@@ -519,15 +510,11 @@ export async function getUnitTypes(): Promise<UnitType[]> {
 }
 
 // ===== UNITS =====
-export async function getUnits(floorId: number, includeArchived = false): Promise<Unit[]> {
+export async function getUnitsLite(floorId: number, includeArchived = false): Promise<Unit[]> {
   const db = await getDatabase();
   const where = includeArchived ? '' : 'AND u.archived_at IS NULL';
   return db.getAllAsync<Unit>(`
-    SELECT u.*, ut.name as unit_type_name,
-      (SELECT COUNT(*) FROM photo p2
-       JOIN photo_group pg2 ON pg2.id=p2.photo_group_id
-       WHERE pg2.unit_id=u.id AND date(p2.captured_at,'localtime')=date('now','localtime')
-      ) as photo_count_today
+    SELECT u.*, ut.name as unit_type_name
     FROM unit u LEFT JOIN unit_type ut ON ut.id=u.unit_type_id
     WHERE u.floor_id=? ${where} ORDER BY u.sort_order, u.id
   `, [floorId]);
@@ -558,8 +545,10 @@ export async function deleteUnit(id: number): Promise<void> {
   const c = await db.getFirstAsync<{ count: number }>(`
     SELECT COUNT(*) as count FROM photo p JOIN photo_group pg ON pg.id=p.photo_group_id WHERE pg.unit_id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos nesta unidade.');
-  await db.runAsync('DELETE FROM photo_group WHERE unit_id=?', [id]);
-  await db.runAsync('DELETE FROM unit WHERE id=?', [id]);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM photo_group WHERE unit_id=?', [id]);
+    await db.runAsync('DELETE FROM unit WHERE id=?', [id]);
+  });
 }
 
 // ===== SERVICES =====
@@ -683,22 +672,40 @@ export async function deletePhoto(id: number): Promise<Photo | null> {
 }
 
 // ===== HISTORY QUERIES =====
-export async function getDateSummaries(): Promise<DateSummary[]> {
+interface PhotoCountsByDate {
+  date: string;
+  photo_count: number;
+  session_count: number;
+  total_bytes: number;
+}
+
+async function getPhotoCountsByDate(): Promise<PhotoCountsByDate[]> {
   const db = await getDatabase();
-  return db.getAllAsync<DateSummary>(`
-    SELECT date(p.captured_at,'localtime') as date,
-      COUNT(p.id) as photo_count,
-      COUNT(DISTINCT pg.inspection_session_id) as session_count,
-      SUM(p.size_bytes) as total_bytes,
-      COUNT(DISTINCT b.id) as block_count
-    FROM photo p
-    JOIN photo_group pg ON pg.id=p.photo_group_id
-    JOIN unit u ON u.id=pg.unit_id
-    JOIN floor f ON f.id=u.floor_id
-    JOIN building bl ON bl.id=f.building_id
-    JOIN block b ON b.id=bl.block_id
+  return db.getAllAsync<PhotoCountsByDate>(`
+    SELECT date(p.captured_at,'localtime') as date, COUNT(p.id) as photo_count,
+      SUM(p.size_bytes) as total_bytes, COUNT(DISTINCT pg.inspection_session_id) as session_count
+    FROM photo p JOIN photo_group pg ON pg.id=p.photo_group_id
     GROUP BY date ORDER BY date DESC
   `);
+}
+
+export async function getDateSummaries(): Promise<DateSummary[]> {
+  const db = await getDatabase();
+  const [counts, blockCounts] = await Promise.all([
+    getPhotoCountsByDate(),
+    db.getAllAsync<{ date: string; block_count: number }>(`
+      SELECT date(p.captured_at,'localtime') as date, COUNT(DISTINCT b.id) as block_count
+      FROM photo p
+      JOIN photo_group pg ON pg.id=p.photo_group_id
+      JOIN unit u ON u.id=pg.unit_id
+      JOIN floor f ON f.id=u.floor_id
+      JOIN building bl ON bl.id=f.building_id
+      JOIN block b ON b.id=bl.block_id
+      GROUP BY date
+    `),
+  ]);
+  const blockMap = new Map(blockCounts.map(r => [r.date, r.block_count]));
+  return counts.map(r => ({ ...r, block_count: blockMap.get(r.date) ?? 0 }));
 }
 
 export async function getBlocksForDate(date: string): Promise<(Block & { photo_count: number })[]> {
@@ -832,13 +839,7 @@ export async function getStorageStats(): Promise<{
 }
 
 export async function getStorageByDate(): Promise<{ date: string; photo_count: number; total_bytes: number; session_count: number }[]> {
-  const db = await getDatabase();
-  return db.getAllAsync(`
-    SELECT date(p.captured_at,'localtime') as date, COUNT(p.id) as photo_count,
-      SUM(p.size_bytes) as total_bytes, COUNT(DISTINCT pg.inspection_session_id) as session_count
-    FROM photo p JOIN photo_group pg ON pg.id=p.photo_group_id
-    GROUP BY date ORDER BY date DESC
-  `);
+  return getPhotoCountsByDate();
 }
 
 export async function deletePhotosByDate(date: string): Promise<{ filenames: string[] }> {
@@ -850,12 +851,13 @@ export async function deletePhotosByDate(date: string): Promise<{ filenames: str
   const photoIds = photos.map(p => p.id);
   if (photoIds.length > 0) {
     const placeholders = photoIds.map(() => '?').join(',');
-    await db.runAsync(`DELETE FROM photo WHERE id IN (${placeholders})`, photoIds);
-    // Clean up empty photo groups and sessions
-    await db.execAsync(`
-      DELETE FROM photo_group WHERE id NOT IN (SELECT DISTINCT photo_group_id FROM photo);
-      DELETE FROM inspection_session WHERE id NOT IN (SELECT DISTINCT inspection_session_id FROM photo_group);
-    `);
+    await db.withTransactionAsync(async () => {
+      await db.runAsync(`DELETE FROM photo WHERE id IN (${placeholders})`, photoIds);
+      await db.execAsync(`
+        DELETE FROM photo_group WHERE id NOT IN (SELECT DISTINCT photo_group_id FROM photo);
+        DELETE FROM inspection_session WHERE id NOT IN (SELECT DISTINCT inspection_session_id FROM photo_group);
+      `);
+    });
   }
   return { filenames };
 }
