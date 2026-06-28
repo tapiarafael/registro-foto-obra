@@ -272,6 +272,37 @@ ${bodyContent}
   return result.uri;
 }
 
+// ── ZIP filename builder ──────────────────────────────────────────────────────
+function buildZipFilename(
+  p: PhotoWithHierarchy,
+  seq: string,
+  date: string,
+  wmConfig: WatermarkConfig,
+): string {
+  if (!wmConfig.enabled) return `${date}_${seq}.jpg`;
+
+  const isOn = (key: string): boolean => {
+    const f = wmConfig.fields.find(wf => wf.field === key);
+    return f ? f.enabled : true;
+  };
+
+  const parts: string[] = [date, seq];
+
+  if (isOn('datetime')) {
+    const d = new Date(p.captured_at);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    parts.push(`${hh}-${mm}`);
+  }
+  if (isOn('quadra') && p.block_name) parts.push(sanitize(p.block_name));
+  if (isOn('predio') && p.building_name) parts.push(sanitize(p.building_name));
+  if (isOn('pavimento') && p.floor_name) parts.push(sanitize(p.floor_name));
+  if (isOn('unidade') && p.unit_name) parts.push(sanitize(p.unit_name));
+  if (isOn('servico') && p.service_name) parts.push(sanitize(p.service_name));
+
+  return `${parts.join('_')}.jpg`;
+}
+
 // ── ZIP export ───────────────────────────────────────────────────────────────
 export async function generateZIP(opts: {
   blockName: string;
@@ -280,7 +311,10 @@ export async function generateZIP(opts: {
   projectName: string;
   onProgress?: (current: number, total: number) => void;
 }): Promise<string> {
-  const photos = await getPhotosForReport(opts.blockId, opts.date);
+  const [photos, wmConfig] = await Promise.all([
+    getPhotosForReport(opts.blockId, opts.date),
+    getWatermarkConfig(),
+  ]);
   opts.onProgress?.(0, photos.length + 1);
 
   const zip = new JSZip();
@@ -295,7 +329,7 @@ export async function generateZIP(opts: {
     const folderPath = `${sanitize(p.building_name)}/${sanitize(p.floor_name)}/${sanitize(p.unit_name)}/${sanitize(p.service_name)}`;
     const folder = rootFolder.folder(folderPath)!;
     const seq = String(i + 1).padStart(3, '0');
-    const filename = `${opts.date}_${seq}.jpg`;
+    const filename = buildZipFilename(p, seq, opts.date, wmConfig);
     try {
       const uri = getPhotoUri(p.internal_filename);
       const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
