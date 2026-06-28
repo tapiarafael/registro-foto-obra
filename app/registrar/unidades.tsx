@@ -4,7 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { getUnits, getUnitsForDate, type Unit } from '@/db/database';
+import { getUnitsLite, getUnitsForDate, type Unit } from '@/db/database';
 import { todayDateString } from '@/services/photoService';
 import HierarchyCard from '@/components/HierarchyCard';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
@@ -19,7 +19,7 @@ export default function RegistrarUnidades() {
   useFocusEffect(useCallback(() => {
     (async () => {
       if (!captureNav.floor) return;
-      setItems(await getUnits(captureNav.floor.id));
+      setItems(await getUnitsLite(captureNav.floor.id));
       const done = await getUnitsForDate(captureNav.floor.id, todayDateString());
       setDoneIds(new Set(done.map((u) => u.id)));
     })();

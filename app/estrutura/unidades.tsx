@@ -4,7 +4,7 @@ import {
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { getUnits, createUnit, updateUnit, deleteUnit, cloneUnit, type Unit } from '@/db/database';
+import { getUnitsLite, createUnit, updateUnit, deleteUnit, cloneUnit, type Unit } from '@/db/database';
 import CrudList from '@/components/CrudList';
 import colors from '@/constants/colors';
 
@@ -18,7 +18,7 @@ export default function EstruturaUnidades() {
   const [cloneBusy, setCloneBusy] = useState(false);
 
   const reload = useCallback(async () => {
-    if (id) setItems(await getUnits(id));
+    if (id) setItems(await getUnitsLite(id));
   }, [id]);
 
   useFocusEffect(useCallback(() => { reload(); }, [reload]));

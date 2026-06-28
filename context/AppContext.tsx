@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { Platform } from 'react-native';
 import {
   Block, Building, Floor, InspectionSession, Project, Service, Unit,
-  getActiveSession, getDatabase, getProject, startSession,
+  getActiveSession, getDatabase, getProject, getTodayPhotoCount, startSession,
 } from '@/db/database';
 
 export interface CaptureNav {
@@ -29,6 +29,7 @@ interface AppContextValue {
   resetCaptureNav: () => void;
   setPhotoGroupId: (id: number) => void;
   incrementTodayCount: () => void;
+  refreshDashboard: () => Promise<void>;
 }
 
 const defaultNav: CaptureNav = {
@@ -42,6 +43,7 @@ const AppContext = createContext<AppContextValue>({
   loadProject: async () => {}, setActiveSession: () => {}, beginSession: async () => null,
   setCaptureNav: () => {}, resetCaptureNav: () => {}, setPhotoGroupId: () => {},
   incrementTodayCount: () => {},
+  refreshDashboard: async () => {},
 });
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -64,9 +66,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (p) {
         const session = await getActiveSession(p.id);
         setActiveSession(session);
-        const { getTodayPhotoCount } = await import('@/db/database');
-        const count = await getTodayPhotoCount();
-        setTodayPhotoCount(count);
+        setTodayPhotoCount(await getTodayPhotoCount());
       }
     } catch (e) {
       console.error('loadProject error:', e);
@@ -109,12 +109,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTodayPhotoCount(c => c + 1);
   }, []);
 
+  const refreshDashboard = useCallback(async () => {
+    if (!project) return;
+    try {
+      const [session, count] = await Promise.all([
+        getActiveSession(project.id),
+        getTodayPhotoCount(),
+      ]);
+      setActiveSession(session);
+      setTodayPhotoCount(count);
+    } catch (e) {
+      console.error('refreshDashboard error:', e);
+    }
+  }, [project]);
+
   return (
     <AppContext.Provider value={{
       project, isReady, isSetupComplete: !!project,
       activeSession, captureNav, todayPhotoCount,
       loadProject, setActiveSession, beginSession,
       setCaptureNav, resetCaptureNav, setPhotoGroupId, incrementTodayCount,
+      refreshDashboard,
     }}>
       {children}
     </AppContext.Provider>

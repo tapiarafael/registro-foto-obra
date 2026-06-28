@@ -4,7 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { getBlocks, type Block } from '@/db/database';
+import { getBlocksLite, type Block } from '@/db/database';
 import HierarchyCard from '@/components/HierarchyCard';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
 import EmptyState from '@/components/EmptyState';
@@ -16,7 +16,7 @@ export default function RegistrarQuadras() {
 
   useFocusEffect(useCallback(() => {
     (async () => {
-      if (project) setBlocks(await getBlocks(project.id));
+      if (project) setBlocks(await getBlocksLite(project.id));
     })();
   }, [project]));
 

@@ -119,21 +119,36 @@ function renderGroupedHTML(
     (a, b) => (sortMap.get(a) ?? 0) - (sortMap.get(b) ?? 0)
   );
 
+  const level = Math.min(depth, 3);
+  const tag = depth < 4 ? `h${depth + 2}` : 'div';
+
+  return sortedKeys.map((key, index) => {
+    const isService = field === 'service';
+    const sectionClass = isService
+      ? `service-section${index > 0 ? ' service-section-divider' : ''}`
+      : '';
+    const wrapperAttrs = sectionClass ? ` class="${sectionClass}"` : '';
+
+    return `
+    <div${wrapperAttrs}>
+      <${tag} style="${getGroupHeadingStyle(field, level, color)}">${FIELD_LABELS[field]}: ${escHtml(key)}</${tag}>
+      ${renderGroupedHTML(groupMap.get(key)!, rest, base64Map, color, wmConfig, depth + 1)}
+    </div>
+  `;
+  }).join('');
+}
+
+function getGroupHeadingStyle(field: GroupField, level: number, color: string): string {
+  if (field === 'service') {
+    return `font-size:13px;color:${color};font-weight:700;margin:0 0 10px;padding:6px 10px;background:#F0F4F8;border-left:4px solid ${color};border-radius:0 4px 4px 0;`;
+  }
   const headingCSS = [
     `font-size:16px;color:${color};border-bottom:2px solid ${color};padding-bottom:4px;margin:20px 0 12px;font-weight:700;`,
     `font-size:14px;color:#333;border-bottom:1px solid #ddd;padding-bottom:3px;margin:14px 0 8px;font-weight:600;`,
     `font-size:12px;color:#555;margin:10px 0 6px;font-weight:600;`,
     `font-size:11px;color:#777;margin:8px 0 4px;font-weight:500;font-style:italic;`,
   ];
-  const level = Math.min(depth, 3);
-  const tag = depth < 4 ? `h${depth + 2}` : 'div';
-
-  return sortedKeys.map(key => `
-    <div>
-      <${tag} style="${headingCSS[level]}">${FIELD_LABELS[field]}: ${escHtml(key)}</${tag}>
-      ${renderGroupedHTML(groupMap.get(key)!, rest, base64Map, color, wmConfig, depth + 1)}
-    </div>
-  `).join('');
+  return headingCSS[level];
 }
 
 function renderPhotoGrid(
@@ -163,11 +178,7 @@ function buildPhotoCard(
 ): string {
   const src = base64 ? `data:image/jpeg;base64,${base64}` : '';
 
-  const isOn = (key: string) => {
-    if (!wmConfig.enabled) return false;
-    const f = wmConfig.fields.find(f => f.field === key);
-    return f ? f.enabled : true;
-  };
+  const isOn = (key: string) => wmConfig.enabled && isWatermarkFieldOn(wmConfig, key);
 
   // datetime → cap-dt row (split into date + time parts for clarity)
   const dtParts: string[] = [];
@@ -205,6 +216,11 @@ function buildPhotoCard(
 
 function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function isWatermarkFieldOn(wmConfig: WatermarkConfig, key: string): boolean {
+  const f = wmConfig.fields.find(wf => wf.field === key);
+  return f ? f.enabled : true;
 }
 
 // ── PDF export ───────────────────────────────────────────────────────────────
@@ -299,6 +315,8 @@ export async function generatePDF(opts: {
   .cap-dt { font-size: 9px; color: #52606D; margin-bottom: 2px; }
   .cap-loc { font-size: 10px; font-weight: bold; color: #17202A; }
   .cap-unit { font-size: 9px; color: ${primaryColor}; margin-top: 2px; }
+  .service-section { padding: 4px 0 8px; }
+  .service-section-divider { border-top: 2px dashed #D9E2EC; margin-top: 16px; padding-top: 16px; }
   footer { margin-top: 24px; border-top: 1px solid #D9E2EC; padding-top: 10px; font-size: 9px; color: #52606D; text-align: right; }
   ${paginationCSS}
 </style>
@@ -333,24 +351,19 @@ function buildZipFilename(
 ): string {
   if (!wmConfig.enabled) return `${date}_${seq}.jpg`;
 
-  const isOn = (key: string): boolean => {
-    const f = wmConfig.fields.find(wf => wf.field === key);
-    return f ? f.enabled : true;
-  };
-
   const parts: string[] = [date, seq];
 
-  if (isOn('datetime')) {
+  if (isWatermarkFieldOn(wmConfig, 'datetime')) {
     const d = new Date(p.captured_at);
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     parts.push(`${hh}-${mm}`);
   }
-  if (isOn('quadra') && p.block_name) parts.push(sanitize(p.block_name));
-  if (isOn('predio') && p.building_name) parts.push(sanitize(p.building_name));
-  if (isOn('pavimento') && p.floor_name) parts.push(sanitize(p.floor_name));
-  if (isOn('unidade') && p.unit_name) parts.push(sanitize(p.unit_name));
-  if (isOn('servico') && p.service_name) parts.push(sanitize(p.service_name));
+  if (isWatermarkFieldOn(wmConfig, 'quadra') && p.block_name) parts.push(sanitize(p.block_name));
+  if (isWatermarkFieldOn(wmConfig, 'predio') && p.building_name) parts.push(sanitize(p.building_name));
+  if (isWatermarkFieldOn(wmConfig, 'pavimento') && p.floor_name) parts.push(sanitize(p.floor_name));
+  if (isWatermarkFieldOn(wmConfig, 'unidade') && p.unit_name) parts.push(sanitize(p.unit_name));
+  if (isWatermarkFieldOn(wmConfig, 'servico') && p.service_name) parts.push(sanitize(p.service_name));
 
   return `${parts.join('_')}.jpg`;
 }
@@ -367,34 +380,47 @@ export async function generateZIP(opts: {
     getPhotosForReport(opts.blockId, opts.date),
     getWatermarkConfig(),
   ]);
-  opts.onProgress?.(0, photos.length + 1);
+  opts.onProgress?.(0, photos.length + 2);
 
   const zip = new JSZip();
   const folderName = `${opts.date}_${sanitize(opts.projectName)}_${sanitize(opts.blockName)}`;
   const rootFolder = zip.folder(folderName)!;
 
-  let index = `REGISTRO FOTOGRÁFICO DE OBRA\n`;
-  index += `Obra: ${opts.projectName}\nQuadra: ${opts.blockName}\nData: ${formatDate(opts.date)}\nTotal: ${photos.length} fotos\n\n`;
+  const base64Map = await loadAllPhotoBase64(
+    photos,
+    'high',
+    (current) => opts.onProgress?.(current, photos.length + 2),
+  );
+
+  const indexLines: string[] = [];
+  let exported = 0;
 
   for (let i = 0; i < photos.length; i++) {
     const p = photos[i];
+    const b64 = base64Map.get(p.internal_filename);
+    if (!b64) continue;
+    exported++;
     const folderPath = `${sanitize(p.building_name)}/${sanitize(p.floor_name)}/${sanitize(p.unit_name)}/${sanitize(p.service_name)}`;
     const folder = rootFolder.folder(folderPath)!;
-    const seq = String(i + 1).padStart(3, '0');
+    const seq = String(exported).padStart(3, '0');
     const filename = buildZipFilename(p, seq, opts.date, wmConfig);
-    try {
-      const uri = getPhotoUri(p.internal_filename);
-      const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      folder.file(filename, b64, { base64: true });
-      index += `${folderPath}/${filename} — ${formatDateTime(p.captured_at)}\n`;
-    } catch {}
-    opts.onProgress?.(i + 1, photos.length + 1);
+    folder.file(filename, b64, { base64: true });
+    indexLines.push(`${folderPath}/${filename} — ${formatDateTime(p.captured_at)}`);
   }
 
+  const skipped = photos.length - exported;
+  let index = `REGISTRO FOTOGRÁFICO DE OBRA\n`;
+  index += `Obra: ${opts.projectName}\nQuadra: ${opts.blockName}\nData: ${formatDate(opts.date)}\n`;
+  index += `Total: ${exported} foto${exported === 1 ? '' : 's'}`;
+  if (skipped > 0) index += ` (${skipped} omitida${skipped === 1 ? '' : 's'})`;
+  index += `\n\n${indexLines.join('\n')}\n`;
+
   rootFolder.file('indice.txt', index);
-  opts.onProgress?.(photos.length + 1, photos.length + 1);
+  opts.onProgress?.(photos.length + 1, photos.length + 2);
 
   const zipContent = await zip.generateAsync({ type: 'base64', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  opts.onProgress?.(photos.length + 2, photos.length + 2);
+
   const zipPath = FileSystem.cacheDirectory + `${folderName}.zip`;
   await FileSystem.writeAsStringAsync(zipPath, zipContent, { encoding: FileSystem.EncodingType.Base64 });
   return zipPath;

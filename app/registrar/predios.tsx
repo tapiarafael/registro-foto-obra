@@ -4,7 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { getBuildings, type Building } from '@/db/database';
+import { getBuildingsLite, type Building } from '@/db/database';
 import HierarchyCard from '@/components/HierarchyCard';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
 import EmptyState from '@/components/EmptyState';
@@ -16,7 +16,7 @@ export default function RegistrarPredios() {
 
   useFocusEffect(useCallback(() => {
     (async () => {
-      if (captureNav.block) setItems(await getBuildings(captureNav.block.id));
+      if (captureNav.block) setItems(await getBuildingsLite(captureNav.block.id));
     })();
   }, [captureNav.block]));
 

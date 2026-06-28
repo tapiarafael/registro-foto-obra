@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
-  getFloors, createFloor, updateFloor, deleteFloor,
+  getFloorsLite, createFloor, updateFloor, deleteFloor,
   cloneFloor, getFloorCloneStats, type Floor,
 } from '@/db/database';
 import CrudList from '@/components/CrudList';
@@ -23,7 +23,7 @@ export default function EstruturaPavimentos() {
   const [cloneStats, setCloneStats] = useState<{ units: number } | null>(null);
 
   const reload = useCallback(async () => {
-    if (id) setItems(await getFloors(id));
+    if (id) setItems(await getFloorsLite(id));
   }, [id]);
 
   useFocusEffect(useCallback(() => { reload(); }, [reload]));

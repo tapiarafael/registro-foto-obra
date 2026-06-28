@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet, Text,
   TouchableOpacity, View,
@@ -36,13 +36,9 @@ export default function CameraScreen() {
   }, [groupId]);
 
   useFocusEffect(useCallback(() => {
-    reload();
-    getWatermarkConfig().then(setWmConfig);
+    void reload();
+    void getWatermarkConfig().then(setWmConfig);
   }, [reload]));
-
-  useEffect(() => {
-    getWatermarkConfig().then(setWmConfig);
-  }, []);
 
   const persist = async (uri: string, source: 'CAMERA' | 'GALLERY') => {
     if (!groupId) return;

@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
-  getBuildings, createBuilding, updateBuilding, deleteBuilding,
+  getBuildingsLite, createBuilding, updateBuilding, deleteBuilding,
   duplicateBuilding, getBuildingCloneStats, type Building,
 } from '@/db/database';
 import CrudList from '@/components/CrudList';
@@ -23,7 +23,7 @@ export default function EstruturaPredios() {
   const [cloneStats, setCloneStats] = useState<{ floors: number; units: number } | null>(null);
 
   const reload = useCallback(async () => {
-    if (id) setItems(await getBuildings(id));
+    if (id) setItems(await getBuildingsLite(id));
   }, [id]);
 
   useFocusEffect(useCallback(() => { reload(); }, [reload]));

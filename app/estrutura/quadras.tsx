@@ -6,7 +6,7 @@ import {
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import {
-  getBlocks, createBlock, updateBlock, deleteBlock,
+  getBlocksLite, createBlock, updateBlock, deleteBlock,
   cloneBlock, getBlockCloneStats, type Block,
 } from '@/db/database';
 import CrudList from '@/components/CrudList';
@@ -23,7 +23,7 @@ export default function EstruturaQuadras() {
   const [cloneStats, setCloneStats] = useState<{ buildings: number; floors: number; units: number } | null>(null);
 
   const reload = useCallback(async () => {
-    if (project) setItems(await getBlocks(project.id));
+    if (project) setItems(await getBlocksLite(project.id));
   }, [project]);
 
   useFocusEffect(useCallback(() => { reload(); }, [reload]));

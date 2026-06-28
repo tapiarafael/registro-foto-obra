@@ -4,7 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { getFloors, type Floor } from '@/db/database';
+import { getFloorsLite, type Floor } from '@/db/database';
 import HierarchyCard from '@/components/HierarchyCard';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
 import EmptyState from '@/components/EmptyState';
@@ -16,7 +16,7 @@ export default function RegistrarPavimentos() {
 
   useFocusEffect(useCallback(() => {
     (async () => {
-      if (captureNav.building) setItems(await getFloors(captureNav.building.id));
+      if (captureNav.building) setItems(await getFloorsLite(captureNav.building.id));
     })();
   }, [captureNav.building]));
 

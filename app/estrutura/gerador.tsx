@@ -8,7 +8,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { getBlocks, getBuildings, bulkCreateStructure, type Block, type Building } from '@/db/database';
+import { getBlocksLite, getBuildingsLite, bulkCreateStructure, type Block, type Building } from '@/db/database';
 
 type NumberFormat = 'cardinal' | 'ordinal_m' | 'ordinal_f';
 
@@ -69,12 +69,12 @@ export default function GeradorScreen() {
   const [busy, setBusy] = useState(false);
 
   useFocusEffect(useCallback(() => {
-    (async () => { if (project) setBlocks(await getBlocks(project.id)); })();
+    (async () => { if (project) setBlocks(await getBlocksLite(project.id)); })();
   }, [project]));
 
   const selectBlock = async (b: Block) => {
     setBlockId(b.id); setBuildingId(null);
-    setBuildings(await getBuildings(b.id));
+    setBuildings(await getBuildingsLite(b.id));
   };
 
   const floorItems = generateItems(floorSettings);

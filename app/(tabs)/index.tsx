@@ -1,29 +1,25 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { getActiveSession, getTodayPhotoCount } from '@/db/database';
 import { formatDateTime } from '@/services/photoService';
 
 export default function RegistrarScreen() {
-  const c = colors.light;
   const router = useRouter();
-  const { project, activeSession, setActiveSession, beginSession, resetCaptureNav, loadProject } = useApp();
-  const [todayCount, setTodayCount] = useState(0);
+  const { project, activeSession, todayPhotoCount, beginSession, resetCaptureNav, refreshDashboard } = useApp();
   const [busy, setBusy] = useState(false);
+  const isFirstFocus = useRef(true);
 
   useFocusEffect(useCallback(() => {
-    (async () => {
-      if (project) {
-        const s = await getActiveSession(project.id);
-        setActiveSession(s);
-        setTodayCount(await getTodayPhotoCount());
-      }
-    })();
-  }, [project, setActiveSession]));
+    if (isFirstFocus.current) {
+      isFirstFocus.current = false;
+      return;
+    }
+    void refreshDashboard();
+  }, [refreshDashboard]));
 
   const onStart = async () => {
     if (busy) return;
@@ -50,7 +46,7 @@ export default function RegistrarScreen() {
 
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
-            <Text style={styles.statValue}>{todayCount}</Text>
+            <Text style={styles.statValue}>{todayPhotoCount}</Text>
             <Text style={styles.statLabel}>Fotos hoje</Text>
           </View>
           <View style={styles.statCard}>
@@ -94,7 +90,6 @@ export default function RegistrarScreen() {
 }
 
 function QuickAction({ icon, label, onPress }: { icon: keyof typeof Feather.glyphMap; label: string; onPress: () => void }) {
-  const c = colors.light;
   return (
     <TouchableOpacity style={styles.quickCard} onPress={onPress} activeOpacity={0.7}>
       <View style={styles.quickIcon}>
