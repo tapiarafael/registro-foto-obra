@@ -37,10 +37,11 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="historico"
+        name="configuracoes"
         options={{
-          title: "Histórico",
-          tabBarIcon: ({ color }) => <Feather name="clock" size={22} color={color} />,
+          title: "Configurações",
+          headerTitle: "Configurações",
+          tabBarIcon: ({ color }) => <Feather name="sliders" size={22} color={color} />,
         }}
       />
       <Tabs.Screen

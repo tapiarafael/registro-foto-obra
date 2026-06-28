@@ -74,16 +74,10 @@ export default function RegistrarScreen() {
 
         <Text style={styles.sectionLabel}>Acesso rápido</Text>
         <View style={styles.quickGrid}>
-          <QuickAction icon="clock" label="Histórico" onPress={() => router.push('/(tabs)/historico')} />
+          <QuickAction icon="clock" label="Histórico" onPress={() => router.push('/historico')} />
           <QuickAction icon="file-text" label="Relatórios" onPress={() => router.push('/(tabs)/relatorios')} />
           <QuickAction icon="grid" label="Estrutura" onPress={() => router.push('/(tabs)/estrutura')} />
-          <QuickAction icon="hard-drive" label="Armazenamento" onPress={() => router.push('/armazenamento')} />
         </View>
-
-        <TouchableOpacity style={styles.obraLink} onPress={() => router.push('/obra')} activeOpacity={0.7}>
-          <Feather name="settings" size={16} color={c.mutedForeground} />
-          <Text style={styles.obraLinkText}>Editar dados da obra</Text>
-        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -141,6 +135,4 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginBottom: 8,
   },
   quickLabel: { fontSize: 13, fontWeight: '600', color: c.foreground },
-  obraLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 24, paddingVertical: 12 },
-  obraLinkText: { fontSize: 13, color: c.mutedForeground },
 });

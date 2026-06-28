@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 
-import { runMigrations } from './migrate';
+import { runMigrations, getSchemaVersion } from './migrate';
 import { nowIsoTimestamp, todayDateString, toLocalDateString } from '@/services/photoService';
 
 // ===== TYPES =====
@@ -876,15 +876,16 @@ export async function deleteGeneratedReportsForDate(date: string): Promise<Gener
 }
 
 export async function getReportConfigHash(): Promise<string> {
-  const [color, pagination, logo, grouping, quality, wm] = await Promise.all([
+  const [color, pagination, logo, grouping, quality, showLabels, wm] = await Promise.all([
     getAppSetting('report_primaryColor'),
     getAppSetting('report_paginationMode'),
     getAppSetting('report_logoPath'),
     getAppSetting('report_groupingFields'),
     getAppSetting('report_imageQuality'),
+    getAppSetting('report_showLabels'),
     getWatermarkConfig(),
   ]);
-  return JSON.stringify({ color, pagination, logo, grouping, quality, wm });
+  return JSON.stringify({ color, pagination, logo, grouping, quality, showLabels, wm });
 }
 
 // ===== STORAGE =====
@@ -1094,6 +1095,16 @@ export async function getAppSetting(key: string): Promise<string | null> {
 export async function setAppSetting(key: string, value: string): Promise<void> {
   const db = await getDatabase();
   await db.runAsync('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?,?)', [key, value]);
+}
+
+export async function getReportShowLabels(): Promise<boolean> {
+  const v = await getAppSetting('report_showLabels');
+  return v !== '0';
+}
+
+export async function getAppSchemaVersion(): Promise<number> {
+  const db = await getDatabase();
+  return getSchemaVersion(db);
 }
 
 // ===== WATERMARK CONFIG =====

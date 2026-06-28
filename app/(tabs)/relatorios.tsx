@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -42,7 +42,6 @@ export default function RelatoriosScreen() {
   const [blocks, setBlocks] = useState<{ block_id: number; block_name: string; photo_count: number; cacheReady?: boolean }[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
-  const router = useRouter();
 
   const loadBlocksForDate = useCallback(async (date: string) => {
     const blockRows = await getBlockPhotoCountForDate(date);
@@ -183,16 +182,6 @@ export default function RelatoriosScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <TouchableOpacity style={styles.configBtn} onPress={() => router.push('/relatorio-config')}>
-        <Feather name="settings" size={16} color={c.primary} />
-        <Text style={styles.configBtnText}>Configurações do relatório</Text>
-        <Feather name="chevron-right" size={16} color={c.mutedForeground} />
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.configBtn} onPress={() => router.push('/marca-dagua')}>
-        <Feather name="droplet" size={16} color={c.primary} />
-        <Text style={styles.configBtnText}>Marca d'Água</Text>
-        <Feather name="chevron-right" size={16} color={c.mutedForeground} />
-      </TouchableOpacity>
       {dates.length === 0 ? (
         <EmptyState icon="file-text" title="Sem relatórios" message="Capture fotos para gerar relatórios em PDF ou exportar em ZIP." />
       ) : (
@@ -282,8 +271,6 @@ export default function RelatoriosScreen() {
 const c = colors.light;
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: c.background },
-  configBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.card, minHeight: 52 },
-  configBtnText: { flex: 1, fontSize: 14, color: c.foreground, fontWeight: '500' },
   list: { padding: 16, gap: 10 },
   blockList: { marginTop: 8, gap: 8, paddingLeft: 12 },
   blockCard: { backgroundColor: c.card, borderRadius: colors.radius, padding: 14, borderWidth: 1, borderColor: c.border },

@@ -8,6 +8,7 @@ import {
   getGeneratedReport,
   getPhotoCountForBlockDate,
   getReportConfigHash,
+  getReportShowLabels,
   upsertGeneratedReport,
   type GeneratedReport,
 } from '@/db/database';
@@ -148,12 +149,13 @@ export async function generatePDF(opts: {
   responsibleEngineer?: string | null;
   onProgress?: (current: number, total: number) => void;
 }): Promise<string> {
-  const [colorSetting, paginationSetting, logoPathSetting, groupingStr, qualitySetting, wmConfig] = await Promise.all([
+  const [colorSetting, paginationSetting, logoPathSetting, groupingStr, qualitySetting, showSectionLabels, wmConfig] = await Promise.all([
     getAppSetting('report_primaryColor'),
     getAppSetting('report_paginationMode'),
     getAppSetting('report_logoPath'),
     getAppSetting('report_groupingFields'),
     getAppSetting('report_imageQuality'),
+    getReportShowLabels(),
     getWatermarkConfig(),
   ]);
 
@@ -189,6 +191,7 @@ export async function generatePDF(opts: {
     paginationMode,
     logoPath: logoPathSetting,
     wmConfig,
+    showSectionLabels,
     onProgress: opts.onProgress,
   });
 

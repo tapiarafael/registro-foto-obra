@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, ScrollView, StyleSheet,
+  ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Switch,
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,7 +8,7 @@ import { Feather } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { getAppSetting, setAppSetting } from '@/db/database';
+import { getAppSetting, getReportShowLabels, setAppSetting } from '@/db/database';
 import colors from '@/constants/colors';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -67,15 +67,17 @@ export default function RelatorioConfig() {
   const [logoPath, setLogoPath] = useState<string | null>(null);
   const [logoPickBusy, setLogoPickBusy] = useState(false);
   const [grouping, setGrouping] = useState<GroupingItem[]>(DEFAULT_GROUPING);
+  const [showSectionLabels, setShowSectionLabels] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const [color, pagination, logo, groupingStr, quality] = await Promise.all([
+      const [color, pagination, logo, groupingStr, quality, labels] = await Promise.all([
         getAppSetting('report_primaryColor'),
         getAppSetting('report_paginationMode'),
         getAppSetting('report_logoPath'),
         getAppSetting('report_groupingFields'),
         getAppSetting('report_imageQuality'),
+        getReportShowLabels(),
       ]);
       if (color) { setPrimaryColor(color); setCustomHex(color); }
       if (pagination) setPaginationMode(pagination as PaginationMode);
@@ -96,6 +98,7 @@ export default function RelatorioConfig() {
           }
         } catch {}
       }
+      setShowSectionLabels(labels);
       setLoading(false);
     })();
   }, []);
@@ -202,6 +205,11 @@ export default function RelatorioConfig() {
     g[i] = { ...g[i], enabled: !g[i].enabled };
     saveGrouping(g);
   };
+
+  const saveShowSectionLabels = useCallback(async (enabled: boolean) => {
+    setShowSectionLabels(enabled);
+    await setAppSetting('report_showLabels', enabled ? '1' : '0');
+  }, []);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) {
@@ -326,6 +334,26 @@ export default function RelatorioConfig() {
           ))}
         </View>
 
+        {/* ── Rótulos das seções ── */}
+        <Text style={s.sectionTitle}>Rótulos das seções</Text>
+        <View style={s.card}>
+          <View style={s.switchRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.switchLabel}>Exibir rótulos</Text>
+              <Text style={s.switchHint}>
+                {showSectionLabels ? 'Ex.: Prédio: Prédio 1' : 'Ex.: Prédio 1'}
+              </Text>
+              <Text style={s.logoHint}>Exibe o nome do campo antes do valor nos títulos de seção do PDF.</Text>
+            </View>
+            <Switch
+              value={showSectionLabels}
+              onValueChange={saveShowSectionLabels}
+              trackColor={{ false: c.border, true: c.primary }}
+              thumbColor="#fff"
+            />
+          </View>
+        </View>
+
         <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
@@ -378,4 +406,7 @@ const s = StyleSheet.create({
   groupLabelOff: { color: c.mutedForeground, textDecorationLine: 'line-through' },
   arrows: { flexDirection: 'row' },
   arrowBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48 },
+  switchLabel: { fontSize: 15, fontWeight: '500', color: c.foreground },
+  switchHint: { fontSize: 13, color: c.mutedForeground, marginTop: 2 },
 });

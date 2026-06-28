@@ -180,6 +180,7 @@ class PdfLayout {
     private font: PDFFont,
     private fontBold: PDFFont,
     private primaryColor: RGB,
+    private showSectionLabels = true,
     private readonly pageWidth = PAGE_WIDTH,
     private readonly pageHeight = PAGE_HEIGHT,
     private readonly margin = MARGIN,
@@ -218,7 +219,7 @@ class PdfLayout {
   }
 
   drawHeading(field: GroupField, label: string, level: number, isFirstService: boolean): void {
-    const text = `${FIELD_LABELS[field]}: ${label}`;
+    const text = this.showSectionLabels ? `${FIELD_LABELS[field]}: ${label}` : label;
     const isService = field === 'service';
 
     if (isService) {
@@ -636,6 +637,7 @@ export async function buildReportPdf(opts: {
   paginationMode: PaginationMode;
   logoPath?: string | null;
   wmConfig: WatermarkConfig;
+  showSectionLabels?: boolean;
   onProgress?: (current: number, total: number) => void;
 }): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
@@ -645,7 +647,7 @@ export async function buildReportPdf(opts: {
 
   const logoImage = await loadLogoImage(pdfDoc, opts.logoPath);
   const page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-  const layout = new PdfLayout(pdfDoc, page, font, fontBold, primaryRgb);
+  const layout = new PdfLayout(pdfDoc, page, font, fontBold, primaryRgb, opts.showSectionLabels !== false);
 
   layout.drawHeader({
     projectName: opts.projectName,
