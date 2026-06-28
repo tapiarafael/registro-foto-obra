@@ -1,12 +1,71 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import JSZip from 'jszip';
 import { getPhotosForReport, getAppSetting, getWatermarkConfig, type PhotoWithHierarchy, type WatermarkConfig } from '@/db/database';
-import { formatDate, formatDateTime, formatDatePart, formatTime, getPhotoUri } from './photoService';
+import { formatDate, formatDateTime, formatDatePart, formatTime, getPhotoUri, getThumbnailUri } from './photoService';
 
 // ── Grouping types ──────────────────────────────────────────────────────────
 type GroupField = 'building' | 'floor' | 'unit' | 'service';
+
+// ── Image quality ─────────────────────────────────────────────────────────────
+type ImageQuality = 'fast' | 'medium' | 'high';
+
+const MEDIUM_WIDTH = 800;
+const READ_CONCURRENCY = 4;
+
+// Reads a single photo as base64 according to the chosen report image quality.
+async function loadPhotoBase64(p: PhotoWithHierarchy, quality: ImageQuality): Promise<string> {
+  if (quality === 'fast') {
+    return FileSystem.readAsStringAsync(getThumbnailUri(p.thumbnail_filename), {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+  }
+  if (quality === 'medium') {
+    const result = await ImageManipulator.manipulateAsync(
+      getPhotoUri(p.internal_filename),
+      [{ resize: { width: MEDIUM_WIDTH } }],
+      { format: ImageManipulator.SaveFormat.JPEG, compress: 0.8, base64: true },
+    );
+    return result.base64 ?? '';
+  }
+  return FileSystem.readAsStringAsync(getPhotoUri(p.internal_filename), {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+}
+
+// Loads base64 for all photos using a bounded concurrency pool, reporting
+// progress as each photo completes.
+async function loadAllPhotoBase64(
+  photos: PhotoWithHierarchy[],
+  quality: ImageQuality,
+  onProgress?: (current: number, total: number) => void,
+): Promise<Map<string, string>> {
+  const base64Map = new Map<string, string>();
+  let completed = 0;
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < photos.length) {
+      const index = cursor++;
+      const p = photos[index];
+      try {
+        const b64 = await loadPhotoBase64(p, quality);
+        if (b64) base64Map.set(p.internal_filename, b64);
+      } catch {}
+      completed++;
+      onProgress?.(completed, photos.length);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(READ_CONCURRENCY, photos.length) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+  return base64Map;
+}
 
 const FIELD_LABELS: Record<GroupField, string> = {
   building: 'Prédio',
@@ -158,16 +217,19 @@ export async function generatePDF(opts: {
   onProgress?: (current: number, total: number) => void;
 }): Promise<string> {
   // Load all settings in parallel
-  const [colorSetting, paginationSetting, logoPathSetting, groupingStr, wmConfig] = await Promise.all([
+  const [colorSetting, paginationSetting, logoPathSetting, groupingStr, qualitySetting, wmConfig] = await Promise.all([
     getAppSetting('report_primaryColor'),
     getAppSetting('report_paginationMode'),
     getAppSetting('report_logoPath'),
     getAppSetting('report_groupingFields'),
+    getAppSetting('report_imageQuality'),
     getWatermarkConfig(),
   ]);
 
   const primaryColor = colorSetting || '#0D47A1';
   const paginationMode = (paginationSetting as 'none' | 'current' | 'current_total') || 'none';
+  const imageQuality: ImageQuality =
+    qualitySetting === 'medium' || qualitySetting === 'high' ? qualitySetting : 'fast';
 
   const groupingFields: GroupField[] = (() => {
     if (!groupingStr) return DEFAULT_GROUPING;
@@ -185,18 +247,8 @@ export async function generatePDF(opts: {
   const photos = await getPhotosForReport(opts.blockId, opts.date);
   opts.onProgress?.(0, photos.length);
 
-  // Pre-load all photo base64 into a Map (single pass)
-  const base64Map = new Map<string, string>();
-  for (let i = 0; i < photos.length; i++) {
-    const p = photos[i];
-    try {
-      const b64 = await FileSystem.readAsStringAsync(getPhotoUri(p.internal_filename), {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      base64Map.set(p.internal_filename, b64);
-    } catch {}
-    opts.onProgress?.(i + 1, photos.length);
-  }
+  // Pre-load all photo base64 into a Map at the configured quality
+  const base64Map = await loadAllPhotoBase64(photos, imageQuality, opts.onProgress);
 
   // Load logo base64
   let logoBase64 = '';

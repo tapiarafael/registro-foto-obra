@@ -12,6 +12,7 @@ import colors from '@/constants/colors';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type PaginationMode = 'none' | 'current' | 'current_total';
+type ImageQuality = 'fast' | 'medium' | 'high';
 type GroupField = 'building' | 'floor' | 'unit' | 'service';
 
 interface GroupingItem {
@@ -44,6 +45,12 @@ const PAGINATION_OPTIONS: { key: PaginationMode; label: string }[] = [
   { key: 'current_total', label: 'Página e total (ex: 3 / 12)' },
 ];
 
+const IMAGE_QUALITY_OPTIONS: { key: ImageQuality; label: string }[] = [
+  { key: 'fast', label: 'Rápida (320px) — recomendado para muitas fotos' },
+  { key: 'medium', label: 'Média (800px)' },
+  { key: 'high', label: 'Alta (resolução total)' },
+];
+
 function isValidHex(s: string): boolean {
   return /^#[0-9A-Fa-f]{6}$/.test(s);
 }
@@ -55,20 +62,23 @@ export default function RelatorioConfig() {
   const [customHex, setCustomHex] = useState('');
   const [hexError, setHexError] = useState(false);
   const [paginationMode, setPaginationMode] = useState<PaginationMode>('none');
+  const [imageQuality, setImageQuality] = useState<ImageQuality>('fast');
   const [logoPath, setLogoPath] = useState<string | null>(null);
   const [logoPickBusy, setLogoPickBusy] = useState(false);
   const [grouping, setGrouping] = useState<GroupingItem[]>(DEFAULT_GROUPING);
 
   useEffect(() => {
     (async () => {
-      const [color, pagination, logo, groupingStr] = await Promise.all([
+      const [color, pagination, logo, groupingStr, quality] = await Promise.all([
         getAppSetting('report_primaryColor'),
         getAppSetting('report_paginationMode'),
         getAppSetting('report_logoPath'),
         getAppSetting('report_groupingFields'),
+        getAppSetting('report_imageQuality'),
       ]);
       if (color) { setPrimaryColor(color); setCustomHex(color); }
       if (pagination) setPaginationMode(pagination as PaginationMode);
+      if (quality === 'fast' || quality === 'medium' || quality === 'high') setImageQuality(quality);
       if (logo) {
         const info = await FileSystem.getInfoAsync(logo);
         if (info.exists) setLogoPath(logo);
@@ -112,6 +122,12 @@ export default function RelatorioConfig() {
   const savePagination = useCallback(async (mode: PaginationMode) => {
     setPaginationMode(mode);
     await setAppSetting('report_paginationMode', mode);
+  }, []);
+
+  // ── Image quality ──────────────────────────────────────────────────────────
+  const saveImageQuality = useCallback(async (quality: ImageQuality) => {
+    setImageQuality(quality);
+    await setAppSetting('report_imageQuality', quality);
   }, []);
 
   // ── Logo ───────────────────────────────────────────────────────────────────
@@ -237,6 +253,20 @@ export default function RelatorioConfig() {
               <Text style={s.radioLabel}>{opt.label}</Text>
             </TouchableOpacity>
           ))}
+        </View>
+
+        {/* ── Qualidade das imagens ── */}
+        <Text style={s.sectionTitle}>Qualidade das imagens</Text>
+        <View style={s.card}>
+          {IMAGE_QUALITY_OPTIONS.map(opt => (
+            <TouchableOpacity key={opt.key} style={s.radioRow} onPress={() => saveImageQuality(opt.key)}>
+              <View style={[s.radio, imageQuality === opt.key && s.radioActive]}>
+                {imageQuality === opt.key && <View style={s.radioDot} />}
+              </View>
+              <Text style={s.radioLabel}>{opt.label}</Text>
+            </TouchableOpacity>
+          ))}
+          <Text style={s.logoHint}>Imagens menores geram o PDF muito mais rápido. Use "Alta" apenas quando precisar da resolução total.</Text>
         </View>
 
         {/* ── Logotipo ── */}

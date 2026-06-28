@@ -13,6 +13,9 @@ import { generatePDF, generateZIP, shareFile } from '@/services/reportService';
 import { formatDateLong } from '@/services/photoService';
 import HierarchyCard from '@/components/HierarchyCard';
 import EmptyState from '@/components/EmptyState';
+import ProgressModal from '@/components/ProgressModal';
+
+type Progress = { phase: 'reading' | 'rendering'; current: number; total: number };
 
 export default function RelatoriosScreen() {
   const c = colors.light;
@@ -21,6 +24,7 @@ export default function RelatoriosScreen() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<{ block_id: number; block_name: string; photo_count: number }[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const router = useRouter();
 
   useFocusEffect(useCallback(() => {
@@ -33,9 +37,14 @@ export default function RelatoriosScreen() {
     setBlocks(await getBlockPhotoCountForDate(date));
   };
 
+  const handleProgress = (current: number, total: number) => {
+    setProgress({ phase: current >= total ? 'rendering' : 'reading', current, total });
+  };
+
   const exportPDF = async (block: { block_id: number; block_name: string }, date: string) => {
     const key = `pdf-${block.block_id}-${date}`;
     setBusy(key);
+    setProgress({ phase: 'reading', current: 0, total: 0 });
     try {
       const uri = await generatePDF({
         projectName: project?.name ?? 'Obra',
@@ -43,29 +52,32 @@ export default function RelatoriosScreen() {
         blockName: block.block_name,
         blockId: block.block_id,
         date,
+        onProgress: handleProgress,
       });
       await shareFile(uri);
     } catch (e) {
       console.error('pdf error', e);
       Alert.alert('Erro', 'Não foi possível gerar o PDF.');
-    } finally { setBusy(null); }
+    } finally { setBusy(null); setProgress(null); }
   };
 
   const exportZIP = async (block: { block_id: number; block_name: string }, date: string) => {
     const key = `zip-${block.block_id}-${date}`;
     setBusy(key);
+    setProgress({ phase: 'reading', current: 0, total: 0 });
     try {
       const uri = await generateZIP({
         projectName: project?.name ?? 'Obra',
         blockName: block.block_name,
         blockId: block.block_id,
         date,
+        onProgress: handleProgress,
       });
       await shareFile(uri);
     } catch (e) {
       console.error('zip error', e);
       Alert.alert('Erro', 'Não foi possível gerar o ZIP.');
-    } finally { setBusy(null); }
+    } finally { setBusy(null); setProgress(null); }
   };
 
   return (
@@ -139,6 +151,17 @@ export default function RelatoriosScreen() {
           )}
         />
       )}
+      <ProgressModal
+        visible={progress !== null}
+        title={busy?.startsWith('zip-') ? 'Gerando ZIP' : 'Gerando PDF'}
+        current={progress?.phase === 'reading' ? progress.current : 0}
+        total={progress?.phase === 'reading' ? progress.total : 0}
+        indeterminateLabel={
+          progress?.phase === 'rendering'
+            ? (busy?.startsWith('zip-') ? 'Compactando arquivos…' : 'Renderizando PDF…')
+            : 'Carregando fotos…'
+        }
+      />
     </SafeAreaView>
   );
 }
