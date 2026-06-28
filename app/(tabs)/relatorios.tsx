@@ -27,19 +27,28 @@ export default function RelatoriosScreen() {
   const [progress, setProgress] = useState<Progress | null>(null);
   const router = useRouter();
 
-  useFocusEffect(useCallback(() => {
-    (async () => setDates(await getDateSummaries()))();
-  }, []));
-
-  const toggle = async (date: string) => {
-    if (expanded === date) { setExpanded(null); return; }
-    setExpanded(date);
+  const loadBlocksForDate = useCallback(async (date: string) => {
     const blockRows = await getBlockPhotoCountForDate(date);
     const withCache = await Promise.all(blockRows.map(async (b) => {
       const { ready } = await isReportCacheReady(b.block_id, date, 'pdf');
       return { ...b, cacheReady: ready };
     }));
     setBlocks(withCache);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    setDates(await getDateSummaries());
+    if (expanded) await loadBlocksForDate(expanded);
+  }, [expanded, loadBlocksForDate]);
+
+  useFocusEffect(useCallback(() => {
+    void refresh();
+  }, [refresh]));
+
+  const toggle = async (date: string) => {
+    if (expanded === date) { setExpanded(null); return; }
+    setExpanded(date);
+    await loadBlocksForDate(date);
   };
 
   const handleProgress = (current: number, total: number) => {
