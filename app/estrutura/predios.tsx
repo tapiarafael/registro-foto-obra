@@ -9,6 +9,7 @@ import {
   duplicateBuilding, getBuildingCloneStats, type Building,
 } from '@/db/database';
 import CrudList from '@/components/CrudList';
+import ProgressModal from '@/components/ProgressModal';
 import colors from '@/constants/colors';
 
 export default function EstruturaPredios() {
@@ -21,6 +22,11 @@ export default function EstruturaPredios() {
   const [cloneVisible, setCloneVisible] = useState(false);
   const [cloneBusy, setCloneBusy] = useState(false);
   const [cloneStats, setCloneStats] = useState<{ floors: number; units: number } | null>(null);
+  const [cloneProgress, setCloneProgress] = useState<{ current: number; total: number } | null>(null);
+
+  const handleCloneProgress = (current: number, total: number) => {
+    setCloneProgress({ current, total });
+  };
 
   const reload = useCallback(async () => {
     if (id) setItems(await getBuildingsLite(id));
@@ -42,13 +48,18 @@ export default function EstruturaPredios() {
     const name = cloneName.trim();
     if (!name) return;
     setCloneBusy(true);
+    setCloneVisible(false);
+    const total = 1 + (cloneStats?.floors ?? 0) + (cloneStats?.units ?? 0);
+    setCloneProgress({ current: 0, total });
     try {
-      await duplicateBuilding(cloneTarget.id, id, name);
-      setCloneVisible(false);
+      await duplicateBuilding(cloneTarget.id, id, name, handleCloneProgress);
       await reload();
     } catch {
       Alert.alert('Erro', 'Não foi possível duplicar o prédio.');
-    } finally { setCloneBusy(false); }
+    } finally {
+      setCloneBusy(false);
+      setCloneProgress(null);
+    }
   };
 
   return (
@@ -64,7 +75,7 @@ export default function EstruturaPredios() {
         onCreate={async (name) => { await createBuilding(id, name); await reload(); }}
         onRename={async (b, name) => { await updateBuilding(b.id, { name }); await reload(); }}
         onDelete={async (b) => { await deleteBuilding(b.id); await reload(); }}
-        onDuplicate={openClone}
+        onDuplicate={cloneBusy ? undefined : openClone}
       />
       <Modal visible={cloneVisible} transparent animationType="fade" onRequestClose={() => setCloneVisible(false)}>
         <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -84,6 +95,13 @@ export default function EstruturaPredios() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <ProgressModal
+        visible={cloneProgress !== null}
+        title="Duplicando prédio"
+        current={cloneProgress?.current}
+        total={cloneProgress?.total}
+        detailUnit="itens"
+      />
     </>
   );
 }

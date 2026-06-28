@@ -11,6 +11,7 @@ import {
 } from '@/db/database';
 import { deleteReportArtifactFiles } from '@/services/reportService';
 import CrudList from '@/components/CrudList';
+import ProgressModal from '@/components/ProgressModal';
 import colors from '@/constants/colors';
 
 export default function EstruturaQuadras() {
@@ -22,6 +23,11 @@ export default function EstruturaQuadras() {
   const [cloneVisible, setCloneVisible] = useState(false);
   const [cloneBusy, setCloneBusy] = useState(false);
   const [cloneStats, setCloneStats] = useState<{ buildings: number; floors: number; units: number } | null>(null);
+  const [cloneProgress, setCloneProgress] = useState<{ current: number; total: number } | null>(null);
+
+  const handleCloneProgress = (current: number, total: number) => {
+    setCloneProgress({ current, total });
+  };
 
   const reload = useCallback(async () => {
     if (project) setItems(await getBlocksLite(project.id));
@@ -43,13 +49,21 @@ export default function EstruturaQuadras() {
     const name = cloneName.trim();
     if (!name) return;
     setCloneBusy(true);
+    setCloneVisible(false);
+    const total = 1
+      + (cloneStats?.buildings ?? 0)
+      + (cloneStats?.floors ?? 0)
+      + (cloneStats?.units ?? 0);
+    setCloneProgress({ current: 0, total });
     try {
-      await cloneBlock(cloneTarget.id, project.id, name);
-      setCloneVisible(false);
+      await cloneBlock(cloneTarget.id, project.id, name, handleCloneProgress);
       await reload();
     } catch {
       Alert.alert('Erro', 'Não foi possível duplicar a quadra.');
-    } finally { setCloneBusy(false); }
+    } finally {
+      setCloneBusy(false);
+      setCloneProgress(null);
+    }
   };
 
   return (
@@ -69,7 +83,7 @@ export default function EstruturaQuadras() {
           await deleteReportArtifactFiles(reports);
           await reload();
         }}
-        onDuplicate={openClone}
+        onDuplicate={cloneBusy ? undefined : openClone}
       />
       <Modal visible={cloneVisible} transparent animationType="fade" onRequestClose={() => setCloneVisible(false)}>
         <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -89,6 +103,13 @@ export default function EstruturaQuadras() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <ProgressModal
+        visible={cloneProgress !== null}
+        title="Duplicando quadra"
+        current={cloneProgress?.current}
+        total={cloneProgress?.total}
+        detailUnit="itens"
+      />
     </>
   );
 }

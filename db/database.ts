@@ -299,24 +299,112 @@ export async function deleteBuilding(id: number): Promise<void> {
   });
 }
 
-export async function duplicateBuilding(sourceId: number, targetBlockId: number, newName: string): Promise<number> {
-  const db = await getDatabase();
-  const mx = await db.getFirstAsync<{ m: number | null }>('SELECT MAX(sort_order) as m FROM building WHERE block_id=?', [targetBlockId]);
-  const order = (mx?.m ?? 0) + 1;
-  const r = await db.runAsync('INSERT INTO building (block_id, name, sort_order) VALUES (?,?,?)', [targetBlockId, newName, order]);
-  const newBuildingId = r.lastInsertRowId;
-  const floors = await db.getAllAsync<Floor>('SELECT * FROM floor WHERE building_id=? AND archived_at IS NULL ORDER BY sort_order', [sourceId]);
-  for (const floor of floors) {
-    const fr = await db.runAsync('INSERT INTO floor (building_id, name, numeric_reference, sort_order) VALUES (?,?,?,?)',
-      [newBuildingId, floor.name, floor.numeric_reference, floor.sort_order]);
-    const newFloorId = fr.lastInsertRowId;
-    const units = await db.getAllAsync<Unit>('SELECT * FROM unit WHERE floor_id=? AND archived_at IS NULL ORDER BY sort_order', [floor.id]);
-    for (const unit of units) {
-      await db.runAsync('INSERT INTO unit (floor_id, unit_type_id, name, sort_order) VALUES (?,?,?,?)',
-        [newFloorId, unit.unit_type_id, unit.name, unit.sort_order]);
-    }
+export type CloneProgressCallback = (current: number, total: number) => void | Promise<void>;
+
+const UNIT_BATCH_SIZE = 100;
+
+function yieldToUI(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve));
+}
+
+async function emitCloneProgress(
+  onProgress: CloneProgressCallback | undefined,
+  current: number,
+  total: number,
+): Promise<void> {
+  if (!onProgress) return;
+  await onProgress(current, total);
+  await yieldToUI();
+}
+
+type UnitCloneRow = Pick<Unit, 'unit_type_id' | 'name' | 'sort_order'>;
+
+async function batchInsertUnits(
+  db: SQLite.SQLiteDatabase,
+  floorId: number,
+  units: UnitCloneRow[],
+  chunkSize = UNIT_BATCH_SIZE,
+): Promise<number> {
+  if (units.length === 0) return 0;
+  let inserted = 0;
+  for (let i = 0; i < units.length; i += chunkSize) {
+    const chunk = units.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => '(?,?,?,?)').join(',');
+    const params = chunk.flatMap(u => [floorId, u.unit_type_id, u.name, u.sort_order]);
+    await db.runAsync(
+      `INSERT INTO unit (floor_id, unit_type_id, name, sort_order) VALUES ${placeholders}`,
+      params,
+    );
+    inserted += chunk.length;
   }
-  return newBuildingId;
+  return inserted;
+}
+
+function groupByParent<T>(items: T[], getKey: (item: T) => number): Map<number, T[]> {
+  const map = new Map<number, T[]>();
+  for (const item of items) {
+    const key = getKey(item);
+    const list = map.get(key);
+    if (list) list.push(item);
+    else map.set(key, [item]);
+  }
+  return map;
+}
+
+async function fetchUnitsForFloors(db: SQLite.SQLiteDatabase, floorIds: number[]): Promise<Unit[]> {
+  if (floorIds.length === 0) return [];
+  const placeholders = floorIds.map(() => '?').join(',');
+  return db.getAllAsync<Unit>(
+    `SELECT * FROM unit WHERE floor_id IN (${placeholders}) AND archived_at IS NULL ORDER BY sort_order`,
+    floorIds,
+  );
+}
+
+export async function duplicateBuilding(
+  sourceId: number,
+  targetBlockId: number,
+  newName: string,
+  onProgress?: CloneProgressCallback,
+): Promise<number> {
+  const db = await getDatabase();
+  const floors = await db.getAllAsync<Floor>(
+    'SELECT * FROM floor WHERE building_id=? AND archived_at IS NULL ORDER BY sort_order',
+    [sourceId],
+  );
+  const allUnits = await fetchUnitsForFloors(db, floors.map(f => f.id));
+  const unitsByFloor = groupByParent(allUnits, u => u.floor_id);
+  const total = 1 + floors.length + allUnits.length;
+  const mx = await db.getFirstAsync<{ m: number | null }>(
+    'SELECT MAX(sort_order) as m FROM building WHERE block_id=?',
+    [targetBlockId],
+  );
+  const order = (mx?.m ?? 0) + 1;
+  try {
+    let newBuildingId = 0;
+    let progress = 0;
+    await db.withTransactionAsync(async () => {
+      const r = await db.runAsync(
+        'INSERT INTO building (block_id, name, sort_order) VALUES (?,?,?)',
+        [targetBlockId, newName, order],
+      );
+      newBuildingId = r.lastInsertRowId;
+      progress = 1;
+      await emitCloneProgress(onProgress, progress, total);
+      for (const floor of floors) {
+        const fr = await db.runAsync(
+          'INSERT INTO floor (building_id, name, numeric_reference, sort_order) VALUES (?,?,?,?)',
+          [newBuildingId, floor.name, floor.numeric_reference, floor.sort_order],
+        );
+        progress += 1;
+        await emitCloneProgress(onProgress, progress, total);
+        progress += await batchInsertUnits(db, fr.lastInsertRowId, unitsByFloor.get(floor.id) ?? []);
+        await emitCloneProgress(onProgress, progress, total);
+      }
+    });
+    return newBuildingId;
+  } catch {
+    throw new Error('Não foi possível duplicar o prédio.');
+  }
 }
 
 // ===== FLOORS (PAVIMENTOS) =====
@@ -361,19 +449,37 @@ export async function deleteFloor(id: number): Promise<void> {
   });
 }
 
-export async function duplicateFloor(sourceFloorId: number, targetBuildingId: number, newName: string, sortOrder: number): Promise<number> {
+export async function duplicateFloor(
+  sourceFloorId: number,
+  targetBuildingId: number,
+  newName: string,
+  sortOrder: number,
+  onProgress?: CloneProgressCallback,
+): Promise<number> {
   const db = await getDatabase();
   const src = await db.getFirstAsync<Floor>('SELECT * FROM floor WHERE id=?', [sourceFloorId]);
   if (!src) throw new Error('Pavimento não encontrado');
-  const r = await db.runAsync('INSERT INTO floor (building_id, name, numeric_reference, sort_order) VALUES (?,?,?,?)',
-    [targetBuildingId, newName, null, sortOrder]);
-  const newFloorId = r.lastInsertRowId;
-  const units = await db.getAllAsync<Unit>('SELECT * FROM unit WHERE floor_id=? AND archived_at IS NULL ORDER BY sort_order', [sourceFloorId]);
-  for (const unit of units) {
-    await db.runAsync('INSERT INTO unit (floor_id, unit_type_id, name, sort_order) VALUES (?,?,?,?)',
-      [newFloorId, unit.unit_type_id, unit.name, unit.sort_order]);
+  const units = await db.getAllAsync<Unit>(
+    'SELECT * FROM unit WHERE floor_id=? AND archived_at IS NULL ORDER BY sort_order',
+    [sourceFloorId],
+  );
+  const total = 1 + units.length;
+  try {
+    let newFloorId = 0;
+    await db.withTransactionAsync(async () => {
+      const r = await db.runAsync(
+        'INSERT INTO floor (building_id, name, numeric_reference, sort_order) VALUES (?,?,?,?)',
+        [targetBuildingId, newName, null, sortOrder],
+      );
+      newFloorId = r.lastInsertRowId;
+      await emitCloneProgress(onProgress, 1, total);
+      const inserted = await batchInsertUnits(db, newFloorId, units);
+      await emitCloneProgress(onProgress, 1 + inserted, total);
+    });
+    return newFloorId;
+  } catch {
+    throw new Error('Não foi possível duplicar o pavimento.');
   }
-  return newFloorId;
 }
 
 // ===== UNIT TYPES =====
@@ -860,35 +966,84 @@ export async function cloneUnit(sourceId: number, targetFloorId: number, newName
   return r.lastInsertRowId;
 }
 
-export async function cloneFloor(sourceId: number, targetBuildingId: number, newName: string): Promise<number> {
+export async function cloneFloor(
+  sourceId: number,
+  targetBuildingId: number,
+  newName: string,
+  onProgress?: CloneProgressCallback,
+): Promise<number> {
   const db = await getDatabase();
-  const mx = await db.getFirstAsync<{ m: number | null }>('SELECT MAX(sort_order) as m FROM floor WHERE building_id=?', [targetBuildingId]);
+  const mx = await db.getFirstAsync<{ m: number | null }>(
+    'SELECT MAX(sort_order) as m FROM floor WHERE building_id=?',
+    [targetBuildingId],
+  );
   const order = (mx?.m ?? 0) + 1;
-  return duplicateFloor(sourceId, targetBuildingId, newName, order);
+  return duplicateFloor(sourceId, targetBuildingId, newName, order, onProgress);
 }
 
-export async function cloneBlock(sourceId: number, projectId: number, newName: string): Promise<number> {
+export async function cloneBlock(
+  sourceId: number,
+  projectId: number,
+  newName: string,
+  onProgress?: CloneProgressCallback,
+): Promise<number> {
   const db = await getDatabase();
-  const mx = await db.getFirstAsync<{ m: number | null }>('SELECT MAX(sort_order) as m FROM block WHERE project_id=?', [projectId]);
-  const order = (mx?.m ?? 0) + 1;
-  const r = await db.runAsync('INSERT INTO block (project_id, name, sort_order) VALUES (?,?,?)', [projectId, newName, order]);
-  const newBlockId = r.lastInsertRowId;
-  const buildings = await db.getAllAsync<Building>('SELECT * FROM building WHERE block_id=? AND archived_at IS NULL ORDER BY sort_order', [sourceId]);
-  for (const building of buildings) {
-    const br = await db.runAsync('INSERT INTO building (block_id, name, sort_order) VALUES (?,?,?)',
-      [newBlockId, building.name, building.sort_order]);
-    const floors = await db.getAllAsync<Floor>('SELECT * FROM floor WHERE building_id=? AND archived_at IS NULL ORDER BY sort_order', [building.id]);
-    for (const floor of floors) {
-      const fr = await db.runAsync('INSERT INTO floor (building_id, name, numeric_reference, sort_order) VALUES (?,?,?,?)',
-        [br.lastInsertRowId, floor.name, floor.numeric_reference, floor.sort_order]);
-      const units = await db.getAllAsync<Unit>('SELECT * FROM unit WHERE floor_id=? AND archived_at IS NULL ORDER BY sort_order', [floor.id]);
-      for (const unit of units) {
-        await db.runAsync('INSERT INTO unit (floor_id, unit_type_id, name, sort_order) VALUES (?,?,?,?)',
-          [fr.lastInsertRowId, unit.unit_type_id, unit.name, unit.sort_order]);
-      }
-    }
+  const buildings = await db.getAllAsync<Building>(
+    'SELECT * FROM building WHERE block_id=? AND archived_at IS NULL ORDER BY sort_order',
+    [sourceId],
+  );
+  const buildingIds = buildings.map(b => b.id);
+  let floors: Floor[] = [];
+  if (buildingIds.length > 0) {
+    const placeholders = buildingIds.map(() => '?').join(',');
+    floors = await db.getAllAsync<Floor>(
+      `SELECT * FROM floor WHERE building_id IN (${placeholders}) AND archived_at IS NULL ORDER BY sort_order`,
+      buildingIds,
+    );
   }
-  return newBlockId;
+  const allUnits = await fetchUnitsForFloors(db, floors.map(f => f.id));
+  const floorsByBuilding = groupByParent(floors, f => f.building_id);
+  const unitsByFloor = groupByParent(allUnits, u => u.floor_id);
+  const total = 1 + buildings.length + floors.length + allUnits.length;
+  const mx = await db.getFirstAsync<{ m: number | null }>(
+    'SELECT MAX(sort_order) as m FROM block WHERE project_id=?',
+    [projectId],
+  );
+  const order = (mx?.m ?? 0) + 1;
+  try {
+    let newBlockId = 0;
+    let progress = 0;
+    await db.withTransactionAsync(async () => {
+      const r = await db.runAsync(
+        'INSERT INTO block (project_id, name, sort_order) VALUES (?,?,?)',
+        [projectId, newName, order],
+      );
+      newBlockId = r.lastInsertRowId;
+      progress = 1;
+      await emitCloneProgress(onProgress, progress, total);
+      for (const building of buildings) {
+        const br = await db.runAsync(
+          'INSERT INTO building (block_id, name, sort_order) VALUES (?,?,?)',
+          [newBlockId, building.name, building.sort_order],
+        );
+        progress += 1;
+        await emitCloneProgress(onProgress, progress, total);
+        for (const floor of floorsByBuilding.get(building.id) ?? []) {
+          const fr = await db.runAsync(
+            'INSERT INTO floor (building_id, name, numeric_reference, sort_order) VALUES (?,?,?,?)',
+            [br.lastInsertRowId, floor.name, floor.numeric_reference, floor.sort_order],
+          );
+          progress += 1;
+          await emitCloneProgress(onProgress, progress, total);
+          progress += await batchInsertUnits(db, fr.lastInsertRowId, unitsByFloor.get(floor.id) ?? []);
+          await emitCloneProgress(onProgress, progress, total);
+        }
+      }
+    });
+    return newBlockId;
+  } catch {
+    throw new Error('Não foi possível duplicar a quadra.');
+  }
 }
 
 export async function getFloorCloneStats(floorId: number): Promise<{ units: number }> {

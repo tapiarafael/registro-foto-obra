@@ -10,10 +10,11 @@ interface Props {
   current?: number;
   total?: number;
   indeterminateLabel?: string;
+  detailUnit?: string;
 }
 
 export default function ProgressModal({
-  visible, title, current = 0, total = 0, indeterminateLabel,
+  visible, title, current = 0, total = 0, indeterminateLabel, detailUnit = 'fotos',
 }: Props) {
   const isDeterminate = total > 0;
   const pct = isDeterminate ? Math.min(100, Math.round((current / total) * 100)) : 0;
@@ -28,7 +29,7 @@ export default function ProgressModal({
               <View style={styles.track}>
                 <View style={[styles.fill, { width: `${pct}%` }]} />
               </View>
-              <Text style={styles.detail}>{current} de {total} fotos · {pct}%</Text>
+              <Text style={styles.detail}>{current} de {total} {detailUnit} · {pct}%</Text>
             </>
           ) : (
             <View style={styles.indeterminate}>
