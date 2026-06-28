@@ -15,15 +15,83 @@ import BreadcrumbBar from '@/components/BreadcrumbBar';
 import EmptyState from '@/components/EmptyState';
 
 type Level = 'dates' | 'blocks' | 'buildings' | 'floors' | 'units' | 'services' | 'photos';
+type HierarchyLevel = 'blocks' | 'buildings' | 'floors' | 'units' | 'services';
 
 interface Crumb { id: number; name: string }
 
+interface PathState {
+  block?: Crumb;
+  building?: Crumb;
+  floor?: Crumb;
+  unit?: Crumb;
+}
+
+interface HierarchyItem {
+  id: number;
+  name: string;
+  photo_count: number;
+}
+
+const HIERARCHY_LEVELS: HierarchyLevel[] = ['blocks', 'buildings', 'floors', 'units', 'services'];
+
+const LEVEL_CONFIG: Record<HierarchyLevel, {
+  pathKey: keyof PathState;
+  icon: keyof typeof Feather.glyphMap;
+  loadItems: (date: string, path: PathState) => Promise<HierarchyItem[]>;
+  loadChildren: (item: HierarchyItem, date: string) => Promise<HierarchyItem[]>;
+}> = {
+  blocks: {
+    pathKey: 'block',
+    icon: 'grid',
+    loadItems: (date) => getBlocksForDate(date),
+    loadChildren: (item, date) => getBuildingsForDate(item.id, date),
+  },
+  buildings: {
+    pathKey: 'building',
+    icon: 'home',
+    loadItems: (date, path) => getBuildingsForDate(path.block!.id, date),
+    loadChildren: (item, date) => getFloorsForDate(item.id, date),
+  },
+  floors: {
+    pathKey: 'floor',
+    icon: 'layers',
+    loadItems: (date, path) => getFloorsForDate(path.building!.id, date),
+    loadChildren: (item, date) => getUnitsForDate(item.id, date),
+  },
+  units: {
+    pathKey: 'unit',
+    icon: 'box',
+    loadItems: (date, path) => getUnitsForDate(path.floor!.id, date),
+    loadChildren: (item, date) => getServicesForDateUnit(item.id, date),
+  },
+  services: {
+    pathKey: 'unit',
+    icon: 'tool',
+    loadItems: (date, path) => getServicesForDateUnit(path.unit!.id, date),
+    loadChildren: async () => [],
+  },
+};
+
+function isHierarchyLevel(level: Level): level is HierarchyLevel {
+  return HIERARCHY_LEVELS.includes(level as HierarchyLevel);
+}
+
+function BackButton({ onPress }: { onPress: () => void }) {
+  return (
+    <View style={styles.backRow}>
+      <TouchableOpacity style={styles.backBtn} onPress={onPress}>
+        <Feather name="arrow-left" size={18} color={c.primary} />
+        <Text style={styles.backText}>Voltar</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function HistoricoScreen() {
-  const c = colors.light;
   const [level, setLevel] = useState<Level>('dates');
-  const [date, setDate] = useState<string>('');
-  const [path, setPath] = useState<Record<string, Crumb>>({});
-  const [items, setItems] = useState<any[]>([]);
+  const [date, setDate] = useState('');
+  const [path, setPath] = useState<PathState>({});
+  const [items, setItems] = useState<(DateSummary | HierarchyItem)[]>([]);
   const [photos, setPhotos] = useState<PhotoWithHierarchy[]>([]);
   const [preview, setPreview] = useState<PhotoWithHierarchy | null>(null);
 
@@ -35,57 +103,68 @@ export default function HistoricoScreen() {
     if (level === 'dates') loadDates();
   }, [level, loadDates]));
 
-  const goDates = async () => { setLevel('dates'); setPath({}); setItems(await getDateSummaries()); };
+  const goDates = async () => {
+    setLevel('dates');
+    setPath({});
+    setItems(await getDateSummaries());
+  };
+
   const openDate = async (d: DateSummary) => {
-    setDate(d.date); setLevel('blocks'); setItems(await getBlocksForDate(d.date));
+    setDate(d.date);
+    setLevel('blocks');
+    setItems(await getBlocksForDate(d.date));
   };
-  const openBlock = async (b: any) => {
-    setPath(p => ({ ...p, block: { id: b.id, name: b.name } }));
-    setLevel('buildings'); setItems(await getBuildingsForDate(b.id, date));
-  };
-  const openBuilding = async (b: any) => {
-    setPath(p => ({ ...p, building: { id: b.id, name: b.name } }));
-    setLevel('floors'); setItems(await getFloorsForDate(b.id, date));
-  };
-  const openFloor = async (f: any) => {
-    setPath(p => ({ ...p, floor: { id: f.id, name: f.name } }));
-    setLevel('units'); setItems(await getUnitsForDate(f.id, date));
-  };
-  const openUnit = async (u: any) => {
-    setPath(p => ({ ...p, unit: { id: u.id, name: u.name } }));
-    setLevel('services'); setItems(await getServicesForDateUnit(u.id, date));
-  };
-  const openService = async (s: any) => {
-    setLevel('photos');
-    setPhotos(await getPhotosForDateUnitService(path.unit.id, s.id, date));
+
+  const openHierarchyItem = async (item: HierarchyItem) => {
+    if (level === 'services') {
+      setLevel('photos');
+      setPhotos(await getPhotosForDateUnitService(path.unit!.id, item.id, date));
+      return;
+    }
+    if (!isHierarchyLevel(level)) return;
+
+    const cfg = LEVEL_CONFIG[level];
+    const nextLevel = HIERARCHY_LEVELS[HIERARCHY_LEVELS.indexOf(level) + 1];
+    setPath((p) => ({ ...p, [cfg.pathKey]: { id: item.id, name: item.name } }));
+    setLevel(nextLevel);
+    setItems(await cfg.loadChildren(item, date));
   };
 
   const back = async () => {
     if (level === 'blocks') return goDates();
-    if (level === 'buildings') { setLevel('blocks'); setItems(await getBlocksForDate(date)); return; }
-    if (level === 'floors') { setLevel('buildings'); setItems(await getBuildingsForDate(path.block.id, date)); return; }
-    if (level === 'units') { setLevel('floors'); setItems(await getFloorsForDate(path.building.id, date)); return; }
-    if (level === 'services') { setLevel('units'); setItems(await getUnitsForDate(path.floor.id, date)); return; }
-    if (level === 'photos') { setLevel('services'); setItems(await getServicesForDateUnit(path.unit.id, date)); return; }
+    if (level === 'photos') {
+      setLevel('services');
+      setItems(await LEVEL_CONFIG.services.loadItems(date, path));
+      return;
+    }
+    if (!isHierarchyLevel(level)) return;
+
+    const prevLevel = HIERARCHY_LEVELS[HIERARCHY_LEVELS.indexOf(level) - 1];
+    setLevel(prevLevel);
+    setItems(await LEVEL_CONFIG[prevLevel].loadItems(date, path));
   };
 
   const crumbs = [
     date ? formatDateLong(date) : '',
-    path.block?.name, path.building?.name, path.floor?.name, path.unit?.name,
+    path.block?.name,
+    path.building?.name,
+    path.floor?.name,
+    path.unit?.name,
   ].filter(Boolean) as string[];
 
   if (level === 'dates') {
+    const dates = items as DateSummary[];
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
-        {items.length === 0 ? (
+        {dates.length === 0 ? (
           <EmptyState icon="clock" title="Sem registros" message="As fotos capturadas aparecerão aqui agrupadas por data." />
         ) : (
           <FlatList
             key="dates"
-            data={items}
-            keyExtractor={(d: DateSummary) => d.date}
+            data={dates}
+            keyExtractor={(d) => d.date}
             contentContainerStyle={styles.list}
-            renderItem={({ item }: { item: DateSummary }) => (
+            renderItem={({ item }) => (
               <HierarchyCard
                 title={formatDateLong(item.date)}
                 subtitle={`${item.photo_count} foto(s)`}
@@ -100,17 +179,14 @@ export default function HistoricoScreen() {
     );
   }
 
-  if (level === 'photos') {
-    return (
-      <SafeAreaView style={styles.container} edges={['bottom']}>
-        <View style={styles.backRow}>
-          <TouchableOpacity style={styles.backBtn} onPress={back}>
-            <Feather name="arrow-left" size={18} color={c.primary} />
-            <Text style={styles.backText}>Voltar</Text>
-          </TouchableOpacity>
-        </View>
-        <BreadcrumbBar items={crumbs} />
-        {photos.length === 0 ? (
+  const hierarchyItems = items as HierarchyItem[];
+
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <BackButton onPress={back} />
+      <BreadcrumbBar items={crumbs} />
+      {level === 'photos' ? (
+        photos.length === 0 ? (
           <EmptyState icon="image" title="Sem fotos" />
         ) : (
           <FlatList
@@ -129,48 +205,35 @@ export default function HistoricoScreen() {
               </Pressable>
             )}
           />
-        )}
-        <PhotoPreview preview={preview} onClose={() => setPreview(null)} />
-      </SafeAreaView>
-    );
-  }
-
-  const handlers: Record<string, (x: any) => void> = {
-    blocks: openBlock, buildings: openBuilding, floors: openFloor, units: openUnit, services: openService,
-  };
-  const iconFor: Record<string, keyof typeof Feather.glyphMap> = {
-    blocks: 'grid', buildings: 'home', floors: 'layers', units: 'box', services: 'tool',
-  };
-
-  return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <View style={styles.backRow}>
-        <TouchableOpacity style={styles.backBtn} onPress={back}>
-          <Feather name="arrow-left" size={18} color={c.primary} />
-          <Text style={styles.backText}>Voltar</Text>
-        </TouchableOpacity>
-      </View>
-      <BreadcrumbBar items={crumbs} />
-      <FlatList
-        key={level}
-        data={items}
-        keyExtractor={(x) => String(x.id)}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <HierarchyCard
-            title={item.name}
-            subtitle={`${item.photo_count} foto(s)`}
-            badge={item.photo_count}
-            left={<Feather name={iconFor[level]} size={22} color={c.primary} />}
-            onPress={() => handlers[level](item)}
-          />
-        )}
-      />
+        )
+      ) : (
+        <FlatList
+          key={level}
+          data={hierarchyItems}
+          keyExtractor={(x) => String(x.id)}
+          contentContainerStyle={styles.list}
+          renderItem={({ item }) => (
+            <HierarchyCard
+              title={item.name}
+              subtitle={`${item.photo_count} foto(s)`}
+              badge={item.photo_count}
+              left={<Feather name={LEVEL_CONFIG[level].icon} size={22} color={c.primary} />}
+              onPress={() => openHierarchyItem(item)}
+            />
+          )}
+        />
+      )}
+      {level === 'photos' && <PhotoPreview preview={preview} onClose={() => setPreview(null)} />}
     </SafeAreaView>
   );
 }
 
-function PhotoPreview({ preview, onClose }: { preview: PhotoWithHierarchy | null; onClose: () => void }) {
+interface PhotoPreviewProps {
+  preview: PhotoWithHierarchy | null;
+  onClose: () => void;
+}
+
+function PhotoPreview({ preview, onClose }: PhotoPreviewProps) {
   return (
     <Modal visible={!!preview} transparent animationType="fade" onRequestClose={onClose}>
       <View style={pStyles.wrap}>
