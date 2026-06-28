@@ -10,8 +10,8 @@ export default function RegistrarLayout() {
         headerTintColor: '#fff',
         headerTitleStyle: { fontWeight: '700' },
         headerBackTitle: 'Voltar',
-        animation: 'slide_from_right',
-        animationDuration: 260,
+        animation: 'fade',
+        animationDuration: 180,
       }}
     >
       <Stack.Screen name="quadras" options={{ title: 'Selecionar Quadra' }} />
