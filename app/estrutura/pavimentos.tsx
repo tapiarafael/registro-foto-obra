@@ -9,6 +9,7 @@ import {
   cloneFloor, getFloorCloneStats, type Floor,
 } from '@/db/database';
 import CrudList from '@/components/CrudList';
+import ProgressModal from '@/components/ProgressModal';
 import colors from '@/constants/colors';
 
 export default function EstruturaPavimentos() {
@@ -21,6 +22,11 @@ export default function EstruturaPavimentos() {
   const [cloneVisible, setCloneVisible] = useState(false);
   const [cloneBusy, setCloneBusy] = useState(false);
   const [cloneStats, setCloneStats] = useState<{ units: number } | null>(null);
+  const [cloneProgress, setCloneProgress] = useState<{ current: number; total: number } | null>(null);
+
+  const handleCloneProgress = (current: number, total: number) => {
+    setCloneProgress({ current, total });
+  };
 
   const reload = useCallback(async () => {
     if (id) setItems(await getFloorsLite(id));
@@ -42,13 +48,18 @@ export default function EstruturaPavimentos() {
     const name = cloneName.trim();
     if (!name) return;
     setCloneBusy(true);
+    setCloneVisible(false);
+    const total = 1 + (cloneStats?.units ?? 0);
+    setCloneProgress({ current: 0, total });
     try {
-      await cloneFloor(cloneTarget.id, id, name);
-      setCloneVisible(false);
+      await cloneFloor(cloneTarget.id, id, name, handleCloneProgress);
       await reload();
     } catch {
       Alert.alert('Erro', 'Não foi possível duplicar o pavimento.');
-    } finally { setCloneBusy(false); }
+    } finally {
+      setCloneBusy(false);
+      setCloneProgress(null);
+    }
   };
 
   return (
@@ -64,7 +75,7 @@ export default function EstruturaPavimentos() {
         onCreate={async (name) => { await createFloor(id, name); await reload(); }}
         onRename={async (f, name) => { await updateFloor(f.id, { name }); await reload(); }}
         onDelete={async (f) => { await deleteFloor(f.id); await reload(); }}
-        onDuplicate={openClone}
+        onDuplicate={cloneBusy ? undefined : openClone}
       />
       <Modal visible={cloneVisible} transparent animationType="fade" onRequestClose={() => setCloneVisible(false)}>
         <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -84,6 +95,13 @@ export default function EstruturaPavimentos() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <ProgressModal
+        visible={cloneProgress !== null}
+        title="Duplicando pavimento"
+        current={cloneProgress?.current}
+        total={cloneProgress?.total}
+        detailUnit="itens"
+      />
     </>
   );
 }
