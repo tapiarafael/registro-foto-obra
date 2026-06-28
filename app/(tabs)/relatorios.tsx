@@ -54,6 +54,7 @@ export default function RelatoriosScreen() {
         date,
         onProgress: handleProgress,
       });
+      setProgress(null);
       await shareFile(uri);
     } catch (e) {
       console.error('pdf error', e);
@@ -73,6 +74,7 @@ export default function RelatoriosScreen() {
         date,
         onProgress: handleProgress,
       });
+      setProgress(null);
       await shareFile(uri);
     } catch (e) {
       console.error('zip error', e);

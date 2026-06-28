@@ -206,7 +206,7 @@ export default function HistoricoScreen() {
             )}
           />
         )
-      ) : (
+      ) : isHierarchyLevel(level) ? (
         <FlatList
           key={level}
           data={hierarchyItems}
@@ -222,7 +222,7 @@ export default function HistoricoScreen() {
             />
           )}
         />
-      )}
+      ) : null}
       {level === 'photos' && <PhotoPreview preview={preview} onClose={() => setPreview(null)} />}
     </SafeAreaView>
   );
