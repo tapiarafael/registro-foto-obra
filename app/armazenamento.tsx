@@ -5,6 +5,7 @@ import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { getStorageStats, getStorageByDate, deletePhotosByDate } from '@/db/database';
+import { deleteReportArtifactsForDate } from '@/services/reportService';
 import { deletePhotoFilesByFilenames, formatFileSize, formatDateLong } from '@/services/photoService';
 
 export default function ArmazenamentoScreen() {
@@ -27,8 +28,9 @@ export default function ArmazenamentoScreen() {
         text: 'Apagar', style: 'destructive', onPress: async () => {
           setBusy(true);
           try {
-            const { filenames } = await deletePhotosByDate(date);
+            const { filenames, reports } = await deletePhotosByDate(date);
             await deletePhotoFilesByFilenames(filenames);
+            await deleteReportArtifactsForDate(reports);
             await reload();
           } finally { setBusy(false); }
         },
