@@ -11,6 +11,7 @@
     "build:production": "eas build --platform android --profile production"
   },
   "dependencies": {
+    "expo-asset": "~12.0.13",
     "expo-camera": "^17.0.10",
     "expo-file-system": "^19.0.23",
     "expo-image-manipulator": "^14.0.8",
