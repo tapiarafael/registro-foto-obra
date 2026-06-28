@@ -81,6 +81,7 @@ export default function HistoricoScreen() {
           <EmptyState icon="clock" title="Sem registros" message="As fotos capturadas aparecerão aqui agrupadas por data." />
         ) : (
           <FlatList
+            key="dates"
             data={items}
             keyExtractor={(d: DateSummary) => d.date}
             contentContainerStyle={styles.list}
@@ -113,6 +114,7 @@ export default function HistoricoScreen() {
           <EmptyState icon="image" title="Sem fotos" />
         ) : (
           <FlatList
+            key="photos-grid"
             data={photos}
             keyExtractor={(p) => String(p.id)}
             numColumns={3}
@@ -150,6 +152,7 @@ export default function HistoricoScreen() {
       </View>
       <BreadcrumbBar items={crumbs} />
       <FlatList
+        key={level}
         data={items}
         keyExtractor={(x) => String(x.id)}
         contentContainerStyle={styles.list}
