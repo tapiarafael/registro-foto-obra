@@ -1,6 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import JSZip from 'jszip';
 import {
@@ -15,7 +14,12 @@ import {
   type WatermarkConfig,
   type GeneratedReport,
 } from '@/db/database';
-import { formatDate, formatDateTime, formatDatePart, formatTime, getPhotoUri, getThumbnailUri } from './photoService';
+import { formatDate, formatDateTime, getPhotoUri, getThumbnailUri } from './photoService';
+import {
+  buildReportPdf,
+  type GroupField,
+  type ImageQuality,
+} from './pdfReportBuilder';
 
 const REPORTS_DIR = FileSystem.documentDirectory + 'reports/';
 const PDF_FILENAME = 'relatorio.pdf';
@@ -119,10 +123,10 @@ export async function deleteReportArtifactsForDate(reports: GeneratedReport[]): 
 }
 
 // ── Grouping types ──────────────────────────────────────────────────────────
-type GroupField = 'building' | 'floor' | 'unit' | 'service';
+
+const DEFAULT_GROUPING: GroupField[] = ['building', 'floor', 'unit', 'service'];
 
 // ── Image quality ─────────────────────────────────────────────────────────────
-type ImageQuality = 'fast' | 'medium' | 'high';
 
 const MEDIUM_WIDTH = 800;
 const READ_CONCURRENCY = 4;
@@ -179,157 +183,6 @@ async function loadAllPhotoBase64(
   return base64Map;
 }
 
-const FIELD_LABELS: Record<GroupField, string> = {
-  building: 'Prédio',
-  floor: 'Pavimento',
-  unit: 'Unidade',
-  service: 'Serviço',
-};
-
-const DEFAULT_GROUPING: GroupField[] = ['building', 'floor', 'unit', 'service'];
-
-function getFieldValue(p: PhotoWithHierarchy, field: GroupField): string {
-  switch (field) {
-    case 'building': return p.building_name;
-    case 'floor': return p.floor_name;
-    case 'unit': return p.unit_name;
-    case 'service': return p.service_name;
-  }
-}
-
-function getFieldSort(p: PhotoWithHierarchy, field: GroupField): number {
-  switch (field) {
-    case 'building': return p.building_sort ?? 0;
-    case 'floor': return p.floor_sort ?? 0;
-    case 'unit': return p.unit_sort ?? 0;
-    case 'service': return p.service_sort ?? 0;
-  }
-}
-
-// ── HTML builders ───────────────────────────────────────────────────────────
-function renderGroupedHTML(
-  photos: PhotoWithHierarchy[],
-  fields: GroupField[],
-  base64Map: Map<string, string>,
-  color: string,
-  wmConfig: WatermarkConfig,
-  depth = 0,
-): string {
-  if (fields.length === 0 || photos.length === 0) {
-    return renderPhotoGrid(photos, base64Map, wmConfig);
-  }
-  const [field, ...rest] = fields;
-  const groupMap = new Map<string, PhotoWithHierarchy[]>();
-  const sortMap = new Map<string, number>();
-  for (const p of photos) {
-    const key = getFieldValue(p, field);
-    const sort = getFieldSort(p, field);
-    if (!groupMap.has(key)) { groupMap.set(key, []); sortMap.set(key, sort); }
-    groupMap.get(key)!.push(p);
-  }
-  const sortedKeys = Array.from(groupMap.keys()).sort(
-    (a, b) => (sortMap.get(a) ?? 0) - (sortMap.get(b) ?? 0)
-  );
-
-  const level = Math.min(depth, 3);
-  const tag = depth < 4 ? `h${depth + 2}` : 'div';
-
-  return sortedKeys.map((key, index) => {
-    const isService = field === 'service';
-    const sectionClass = isService
-      ? `service-section${index > 0 ? ' service-section-divider' : ''}`
-      : '';
-    const wrapperAttrs = sectionClass ? ` class="${sectionClass}"` : '';
-
-    return `
-    <div${wrapperAttrs}>
-      <${tag} style="${getGroupHeadingStyle(field, level, color)}">${FIELD_LABELS[field]}: ${escHtml(key)}</${tag}>
-      ${renderGroupedHTML(groupMap.get(key)!, rest, base64Map, color, wmConfig, depth + 1)}
-    </div>
-  `;
-  }).join('');
-}
-
-function getGroupHeadingStyle(field: GroupField, level: number, color: string): string {
-  if (field === 'service') {
-    return `font-size:13px;color:${color};font-weight:700;margin:0 0 10px;padding:6px 10px;background:#F0F4F8;border-left:4px solid ${color};border-radius:0 4px 4px 0;`;
-  }
-  const headingCSS = [
-    `font-size:16px;color:${color};border-bottom:2px solid ${color};padding-bottom:4px;margin:20px 0 12px;font-weight:700;`,
-    `font-size:14px;color:#333;border-bottom:1px solid #ddd;padding-bottom:3px;margin:14px 0 8px;font-weight:600;`,
-    `font-size:12px;color:#555;margin:10px 0 6px;font-weight:600;`,
-    `font-size:11px;color:#777;margin:8px 0 4px;font-weight:500;font-style:italic;`,
-  ];
-  return headingCSS[level];
-}
-
-function renderPhotoGrid(
-  photos: PhotoWithHierarchy[],
-  base64Map: Map<string, string>,
-  wmConfig: WatermarkConfig,
-): string {
-  if (photos.length === 0) return '';
-  const rows: string[] = [];
-  for (let i = 0; i < photos.length; i += 2) {
-    const p1 = photos[i];
-    const p2 = photos[i + 1];
-    rows.push(
-      `<div style="display:flex;gap:10px;margin-bottom:12px;page-break-inside:avoid;">` +
-      buildPhotoCard(p1, base64Map.get(p1.internal_filename) ?? '', wmConfig) +
-      (p2 ? buildPhotoCard(p2, base64Map.get(p2.internal_filename) ?? '', wmConfig) : '<div style="flex:1;"></div>') +
-      `</div>`
-    );
-  }
-  return rows.join('');
-}
-
-function buildPhotoCard(
-  photo: PhotoWithHierarchy,
-  base64: string,
-  wmConfig: WatermarkConfig,
-): string {
-  const src = base64 ? `data:image/jpeg;base64,${base64}` : '';
-
-  const isOn = (key: string) => wmConfig.enabled && isWatermarkFieldOn(wmConfig, key);
-
-  // datetime → cap-dt row (split into date + time parts for clarity)
-  const dtParts: string[] = [];
-  if (isOn('datetime')) {
-    dtParts.push(formatDatePart(photo.captured_at));
-    dtParts.push(formatTime(photo.captured_at));
-  }
-
-  // location fields → cap-loc row
-  const locParts: string[] = [];
-  if (isOn('quadra') && photo.block_name) locParts.push(photo.block_name);
-  if (isOn('predio') && photo.building_name) locParts.push(photo.building_name);
-  if (isOn('pavimento') && photo.floor_name) locParts.push(photo.floor_name);
-
-  // unit + service → cap-unit row
-  const unitParts: string[] = [];
-  if (isOn('unidade') && photo.unit_name) unitParts.push(photo.unit_name);
-  if (isOn('servico') && photo.service_name) unitParts.push(photo.service_name);
-
-  const captionLines = [
-    dtParts.length ? `<div class="cap-dt">${escHtml(dtParts.join(' '))}</div>` : '',
-    locParts.length ? `<div class="cap-loc">${escHtml(locParts.join(' · '))}</div>` : '',
-    unitParts.length ? `<div class="cap-unit">${escHtml(unitParts.join(' · '))}</div>` : '',
-  ].filter(Boolean);
-
-  return `
-    <div class="photo-card">
-      ${src
-    ? `<img src="${src}" />`
-    : '<div style="height:160px;background:#e0e0e0;display:flex;align-items:center;justify-content:center;color:#999;font-size:10px;">Imagem indisponível</div>'
-  }
-      ${captionLines.length > 0 ? `<div class="info">${captionLines.join('')}</div>` : ''}
-    </div>`;
-}
-
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 function isWatermarkFieldOn(wmConfig: WatermarkConfig, key: string): boolean {
   const f = wmConfig.fields.find(wf => wf.field === key);
   return f ? f.enabled : true;
@@ -344,7 +197,6 @@ export async function generatePDF(opts: {
   responsibleEngineer?: string | null;
   onProgress?: (current: number, total: number) => void;
 }): Promise<string> {
-  // Load all settings in parallel
   const [colorSetting, paginationSetting, logoPathSetting, groupingStr, qualitySetting, wmConfig] = await Promise.all([
     getAppSetting('report_primaryColor'),
     getAppSetting('report_paginationMode'),
@@ -371,87 +223,29 @@ export async function generatePDF(opts: {
     return DEFAULT_GROUPING;
   })();
 
-  // Load photos
   const photos = await getPhotosForReport(opts.blockId, opts.date);
   opts.onProgress?.(0, photos.length);
 
-  // Pre-load all photo base64 into a Map at the configured quality
-  const base64Map = await loadAllPhotoBase64(photos, imageQuality, opts.onProgress);
+  const base64 = await buildReportPdf({
+    projectName: opts.projectName,
+    blockName: opts.blockName,
+    date: opts.date,
+    responsibleEngineer: opts.responsibleEngineer,
+    photos,
+    groupingFields,
+    imageQuality,
+    primaryColor,
+    paginationMode,
+    logoPath: logoPathSetting,
+    wmConfig,
+    onProgress: opts.onProgress,
+  });
 
-  // Load logo base64
-  let logoBase64 = '';
-  if (logoPathSetting) {
-    try {
-      const info = await FileSystem.getInfoAsync(logoPathSetting);
-      if (info.exists) {
-        logoBase64 = await FileSystem.readAsStringAsync(logoPathSetting, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-      }
-    } catch {}
-  }
-
-  // Pagination CSS
-  const paginationCSS =
-    paginationMode === 'current'
-      ? `@page { @bottom-center { content: 'Página ' counter(page); font-size:9px; color:#666; } }`
-      : paginationMode === 'current_total'
-      ? `@page { @bottom-center { content: 'Página ' counter(page) ' de ' counter(pages); font-size:9px; color:#666; } }`
-      : '';
-
-  // Build body content
-  const bodyContent =
-    photos.length === 0
-      ? '<div style="text-align:center;color:#777;padding:48px 0;">Nenhuma foto registrada nesta data e quadra.</div>'
-      : renderGroupedHTML(photos, groupingFields, base64Map, primaryColor, wmConfig);
-
-  const logoHTML = logoBase64
-    ? `<img src="data:image/jpeg;base64,${logoBase64}" style="height:48px;max-width:140px;object-fit:contain;float:right;margin:0 0 6px 12px;" />`
-    : '';
-
-  const html = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #17202A; background: #fff; padding: 20px; }
-  .header { border-bottom: 3px solid ${primaryColor}; padding-bottom: 12px; margin-bottom: 20px; overflow: hidden; }
-  .header h1 { font-size: 20px; color: ${primaryColor}; margin-bottom: 4px; }
-  .header .meta { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 8px; }
-  .header .meta span { font-size: 11px; color: #52606D; }
-  .header .meta strong { color: #17202A; }
-  .photo-card { flex: 1; border: 1px solid #D9E2EC; border-radius: 6px; overflow: hidden; background: #F5F7FA; }
-  .photo-card img { width: 100%; display: block; max-height: 200px; object-fit: cover; }
-  .photo-card .info { padding: 6px 8px; }
-  .cap-dt { font-size: 9px; color: #52606D; margin-bottom: 2px; }
-  .cap-loc { font-size: 10px; font-weight: bold; color: #17202A; }
-  .cap-unit { font-size: 9px; color: ${primaryColor}; margin-top: 2px; }
-  .service-section { padding: 4px 0 8px; }
-  .service-section-divider { border-top: 2px dashed #D9E2EC; margin-top: 16px; padding-top: 16px; }
-  footer { margin-top: 24px; border-top: 1px solid #D9E2EC; padding-top: 10px; font-size: 9px; color: #52606D; text-align: right; }
-  ${paginationCSS}
-</style>
-</head>
-<body>
-<div class="header">
-  ${logoHTML}
-  <h1>Registro Fotográfico de Obra</h1>
-  <div style="font-size:14px;color:#17202A;font-weight:bold;margin-top:4px;">${escHtml(opts.projectName)}</div>
-  <div class="meta">
-    <span>Quadra: <strong>${escHtml(opts.blockName)}</strong></span>
-    <span>Data: <strong>${formatDate(opts.date)}</strong></span>
-    <span>Total de fotos: <strong>${photos.length}</strong></span>
-    ${opts.responsibleEngineer ? `<span>Responsável: <strong>${escHtml(opts.responsibleEngineer)}</strong></span>` : ''}
-  </div>
-</div>
-${bodyContent}
-<footer>Relatório gerado em ${formatDateTime(new Date().toISOString())} · ${escHtml(opts.projectName)}</footer>
-</body>
-</html>`;
-
-  const result = await Print.printToFileAsync({ html, base64: false });
-  return result.uri;
+  const tempPath = FileSystem.cacheDirectory + `report-${Date.now()}.pdf`;
+  await FileSystem.writeAsStringAsync(tempPath, base64, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  return tempPath;
 }
 
 export async function getOrGeneratePDF(

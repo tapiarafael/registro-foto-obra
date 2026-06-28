@@ -46,6 +46,14 @@ export default function RelatoriosScreen() {
     setProgress({ phase: current >= total ? 'rendering' : 'reading', current, total });
   };
 
+  const pdfErrorMessage = (e: unknown): string => {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/OutOfMemory|OOM|memory/i.test(msg)) {
+      return 'Memória insuficiente para gerar o PDF. Tente qualidade Média ou Rápida nas configurações do relatório.';
+    }
+    return 'Não foi possível gerar o PDF.';
+  };
+
   const exportPDF = async (block: { block_id: number; block_name: string }, date: string) => {
     const key = `pdf-${block.block_id}-${date}`;
     setBusy(key);
@@ -67,7 +75,7 @@ export default function RelatoriosScreen() {
       }
     } catch (e) {
       console.error('pdf error', e);
-      Alert.alert('Erro', 'Não foi possível gerar o PDF.');
+      Alert.alert('Erro', pdfErrorMessage(e));
     } finally { setBusy(null); setProgress(null); }
   };
 
@@ -177,7 +185,7 @@ export default function RelatoriosScreen() {
         total={progress?.phase === 'reading' ? progress.total : 0}
         indeterminateLabel={
           progress?.phase === 'rendering'
-            ? (busy?.startsWith('zip-') ? 'Compactando arquivos…' : 'Renderizando PDF…')
+            ? (busy?.startsWith('zip-') ? 'Compactando arquivos…' : 'Montando PDF…')
             : 'Carregando fotos…'
         }
       />

@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { getAppSetting, setAppSetting } from '@/db/database';
 import colors from '@/constants/colors';
@@ -48,7 +49,7 @@ const PAGINATION_OPTIONS: { key: PaginationMode; label: string }[] = [
 const IMAGE_QUALITY_OPTIONS: { key: ImageQuality; label: string }[] = [
   { key: 'fast', label: 'Rápida (320px) — recomendado para muitas fotos' },
   { key: 'medium', label: 'Média (800px)' },
-  { key: 'high', label: 'Alta (resolução total)' },
+  { key: 'high', label: 'Alta (resolução total) — suporta relatórios grandes' },
 ];
 
 function isValidHex(s: string): boolean {
@@ -146,7 +147,12 @@ export default function RelatorioConfig() {
       });
       if (!result.canceled && result.assets[0]) {
         const dest = FileSystem.documentDirectory + 'report_logo.jpg';
-        await FileSystem.copyAsync({ from: result.assets[0].uri, to: dest });
+        const normalized = await ImageManipulator.manipulateAsync(
+          result.assets[0].uri,
+          [],
+          { format: ImageManipulator.SaveFormat.JPEG, compress: 0.9 },
+        );
+        await FileSystem.copyAsync({ from: normalized.uri, to: dest });
         setLogoPath(dest);
         await setAppSetting('report_logoPath', dest);
       }
