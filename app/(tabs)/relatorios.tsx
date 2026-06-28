@@ -9,7 +9,7 @@ import {
   getDateSummaries, getBlockPhotoCountForDate,
   type DateSummary,
 } from '@/db/database';
-import { generatePDF, generateZIP, shareFile } from '@/services/reportService';
+import { getOrGeneratePDF, getOrGenerateZIP, isReportCacheReady, shareFile } from '@/services/reportService';
 import { formatDateLong } from '@/services/photoService';
 import HierarchyCard from '@/components/HierarchyCard';
 import EmptyState from '@/components/EmptyState';
@@ -22,7 +22,7 @@ export default function RelatoriosScreen() {
   const { project } = useApp();
   const [dates, setDates] = useState<DateSummary[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [blocks, setBlocks] = useState<{ block_id: number; block_name: string; photo_count: number }[]>([]);
+  const [blocks, setBlocks] = useState<{ block_id: number; block_name: string; photo_count: number; cacheReady?: boolean }[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const router = useRouter();
@@ -34,7 +34,12 @@ export default function RelatoriosScreen() {
   const toggle = async (date: string) => {
     if (expanded === date) { setExpanded(null); return; }
     setExpanded(date);
-    setBlocks(await getBlockPhotoCountForDate(date));
+    const blockRows = await getBlockPhotoCountForDate(date);
+    const withCache = await Promise.all(blockRows.map(async (b) => {
+      const { ready } = await isReportCacheReady(b.block_id, date, 'pdf');
+      return { ...b, cacheReady: ready };
+    }));
+    setBlocks(withCache);
   };
 
   const handleProgress = (current: number, total: number) => {
@@ -44,18 +49,22 @@ export default function RelatoriosScreen() {
   const exportPDF = async (block: { block_id: number; block_name: string }, date: string) => {
     const key = `pdf-${block.block_id}-${date}`;
     setBusy(key);
-    setProgress({ phase: 'reading', current: 0, total: 0 });
     try {
-      const uri = await generatePDF({
+      const { ready } = await isReportCacheReady(block.block_id, date, 'pdf');
+      if (!ready) setProgress({ phase: 'reading', current: 0, total: 0 });
+      const { uri } = await getOrGeneratePDF({
         projectName: project?.name ?? 'Obra',
         responsibleEngineer: project?.responsible_engineer ?? undefined,
         blockName: block.block_name,
         blockId: block.block_id,
         date,
-        onProgress: handleProgress,
+        onProgress: ready ? undefined : handleProgress,
       });
-      setProgress(null);
+      if (!ready) setProgress(null);
       await shareFile(uri);
+      if (expanded === date) {
+        setBlocks(prev => prev.map(b => b.block_id === block.block_id ? { ...b, cacheReady: true } : b));
+      }
     } catch (e) {
       console.error('pdf error', e);
       Alert.alert('Erro', 'Não foi possível gerar o PDF.');
@@ -65,17 +74,22 @@ export default function RelatoriosScreen() {
   const exportZIP = async (block: { block_id: number; block_name: string }, date: string) => {
     const key = `zip-${block.block_id}-${date}`;
     setBusy(key);
-    setProgress({ phase: 'reading', current: 0, total: 0 });
     try {
-      const uri = await generateZIP({
+      const needsProgress = !(await isReportCacheReady(block.block_id, date, 'zip')).ready;
+      if (needsProgress) setProgress({ phase: 'reading', current: 0, total: 0 });
+      const { uri } = await getOrGenerateZIP({
         projectName: project?.name ?? 'Obra',
+        responsibleEngineer: project?.responsible_engineer ?? undefined,
         blockName: block.block_name,
         blockId: block.block_id,
         date,
-        onProgress: handleProgress,
+        onProgress: needsProgress ? handleProgress : undefined,
       });
-      setProgress(null);
+      if (needsProgress) setProgress(null);
       await shareFile(uri);
+      if (expanded === date) {
+        setBlocks(prev => prev.map(b => b.block_id === block.block_id ? { ...b, cacheReady: true } : b));
+      }
     } catch (e) {
       console.error('zip error', e);
       Alert.alert('Erro', 'Não foi possível gerar o ZIP.');
@@ -116,7 +130,10 @@ export default function RelatoriosScreen() {
                   {blocks.map(b => (
                     <View key={b.block_id} style={styles.blockCard}>
                       <View style={styles.blockHeader}>
-                        <Text style={styles.blockName}>{b.block_name}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.blockName}>{b.block_name}</Text>
+                          {b.cacheReady && <Text style={styles.cacheReady}>Relatório pronto</Text>}
+                        </View>
                         <Text style={styles.blockCount}>{b.photo_count} foto(s)</Text>
                       </View>
                       <View style={styles.exportRow}>
@@ -178,6 +195,7 @@ const styles = StyleSheet.create({
   blockCard: { backgroundColor: c.card, borderRadius: colors.radius, padding: 14, borderWidth: 1, borderColor: c.border },
   blockHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   blockName: { fontSize: 15, fontWeight: '600', color: c.foreground },
+  cacheReady: { fontSize: 12, color: c.primary, marginTop: 2 },
   blockCount: { fontSize: 13, color: c.mutedForeground },
   exportRow: { flexDirection: 'row', gap: 10 },
   exportBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: colors.radius, minHeight: 48 },

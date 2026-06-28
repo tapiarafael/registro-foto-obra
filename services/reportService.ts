@@ -3,8 +3,120 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import JSZip from 'jszip';
-import { getPhotosForReport, getAppSetting, getWatermarkConfig, type PhotoWithHierarchy, type WatermarkConfig } from '@/db/database';
+import {
+  getPhotosForReport,
+  getAppSetting,
+  getWatermarkConfig,
+  getGeneratedReport,
+  getPhotoCountForBlockDate,
+  getReportConfigHash,
+  upsertGeneratedReport,
+  type PhotoWithHierarchy,
+  type WatermarkConfig,
+  type GeneratedReport,
+} from '@/db/database';
 import { formatDate, formatDateTime, formatDatePart, formatTime, getPhotoUri, getThumbnailUri } from './photoService';
+
+const REPORTS_DIR = FileSystem.documentDirectory + 'reports/';
+const PDF_FILENAME = 'relatorio.pdf';
+const ZIP_FILENAME = 'export.zip';
+
+function sanitize(s: string): string {
+  return s.replace(/[^a-zA-Z0-9\u00C0-\u00FF _-]/g, '').trim().replace(/\s+/g, '_');
+}
+
+export function buildReportFolderName(date: string, projectName: string, blockName: string): string {
+  return `${date}_${sanitize(projectName)}_${sanitize(blockName)}`;
+}
+
+export function getReportDir(date: string, projectName: string, blockName: string): string {
+  return `${REPORTS_DIR}${buildReportFolderName(date, projectName, blockName)}/`;
+}
+
+async function ensureReportDir(dir: string): Promise<void> {
+  const info = await FileSystem.getInfoAsync(dir);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  }
+}
+
+async function writeFileReplacing(path: string, contents: string, encoding: FileSystem.EncodingType): Promise<void> {
+  const existing = await FileSystem.getInfoAsync(path);
+  if (existing.exists) {
+    await FileSystem.deleteAsync(path, { idempotent: true });
+  }
+  await FileSystem.writeAsStringAsync(path, contents, { encoding });
+}
+
+async function copyFileReplacing(from: string, to: string): Promise<void> {
+  const existing = await FileSystem.getInfoAsync(to);
+  if (existing.exists) {
+    await FileSystem.deleteAsync(to, { idempotent: true });
+  }
+  await FileSystem.copyAsync({ from, to });
+}
+
+type ReportExportOpts = {
+  blockName: string;
+  date: string;
+  projectName: string;
+  blockId: number;
+  responsibleEngineer?: string | null;
+  onProgress?: (current: number, total: number) => void;
+};
+
+export type ReportExportResult = { uri: string; fromCache: boolean };
+
+async function isCacheEntryValid(
+  report: GeneratedReport | null,
+  blockId: number,
+  date: string,
+  filePath: string | null | undefined,
+): Promise<boolean> {
+  if (!report || !filePath) return false;
+  const [photoCount, configHash] = await Promise.all([
+    getPhotoCountForBlockDate(blockId, date),
+    getReportConfigHash(),
+  ]);
+  if (report.photo_count !== photoCount || report.config_hash !== configHash) return false;
+  const info = await FileSystem.getInfoAsync(filePath);
+  return info.exists;
+}
+
+export async function isReportCacheReady(
+  blockId: number,
+  date: string,
+  type: 'pdf' | 'zip',
+): Promise<{ ready: boolean; generatedAt?: string }> {
+  const report = await getGeneratedReport(blockId, date);
+  const path = type === 'pdf' ? report?.pdf_path : report?.zip_path;
+  const ready = await isCacheEntryValid(report, blockId, date, path);
+  return { ready, generatedAt: ready ? report?.generated_at : undefined };
+}
+
+export async function deleteReportArtifactFiles(reports: GeneratedReport[]): Promise<void> {
+  const dirs = new Set<string>();
+  for (const report of reports) {
+    for (const filePath of [report.pdf_path, report.zip_path]) {
+      if (!filePath) continue;
+      try {
+        const info = await FileSystem.getInfoAsync(filePath);
+        if (info.exists) await FileSystem.deleteAsync(filePath, { idempotent: true });
+        dirs.add(filePath.slice(0, filePath.lastIndexOf('/') + 1));
+      } catch {}
+    }
+  }
+  for (const dir of dirs) {
+    try {
+      const info = await FileSystem.getInfoAsync(dir);
+      if (info.exists) await FileSystem.deleteAsync(dir, { idempotent: true });
+    } catch {}
+  }
+}
+
+export async function deleteReportArtifactsForDate(reports: GeneratedReport[]): Promise<void> {
+  await deleteReportArtifactFiles(reports);
+}
 
 // ── Grouping types ──────────────────────────────────────────────────────────
 type GroupField = 'building' | 'floor' | 'unit' | 'service';
@@ -342,6 +454,39 @@ ${bodyContent}
   return result.uri;
 }
 
+export async function getOrGeneratePDF(
+  opts: ReportExportOpts,
+  options?: { force?: boolean },
+): Promise<ReportExportResult> {
+  const reportDir = getReportDir(opts.date, opts.projectName, opts.blockName);
+  const pdfPath = reportDir + PDF_FILENAME;
+
+  if (!options?.force) {
+    const report = await getGeneratedReport(opts.blockId, opts.date);
+    if (await isCacheEntryValid(report, opts.blockId, opts.date, report?.pdf_path)) {
+      return { uri: report!.pdf_path!, fromCache: true };
+    }
+  }
+
+  const tempUri = await generatePDF(opts);
+  await ensureReportDir(reportDir);
+  await copyFileReplacing(tempUri, pdfPath);
+
+  const [photoCount, configHash] = await Promise.all([
+    getPhotoCountForBlockDate(opts.blockId, opts.date),
+    getReportConfigHash(),
+  ]);
+  await upsertGeneratedReport({
+    blockId: opts.blockId,
+    date: opts.date,
+    photoCount,
+    configHash,
+    pdfPath,
+  });
+
+  return { uri: pdfPath, fromCache: false };
+}
+
 // ── ZIP filename builder ──────────────────────────────────────────────────────
 function buildZipFilename(
   p: PhotoWithHierarchy,
@@ -369,27 +514,29 @@ function buildZipFilename(
 }
 
 // ── ZIP export ───────────────────────────────────────────────────────────────
-export async function generateZIP(opts: {
+async function buildZIPContent(opts: {
   blockName: string;
   date: string;
   blockId: number;
   projectName: string;
+  pdfPath: string;
   onProgress?: (current: number, total: number) => void;
 }): Promise<string> {
   const [photos, wmConfig] = await Promise.all([
     getPhotosForReport(opts.blockId, opts.date),
     getWatermarkConfig(),
   ]);
-  opts.onProgress?.(0, photos.length + 2);
+  const totalSteps = photos.length + 3;
+  opts.onProgress?.(0, totalSteps);
 
   const zip = new JSZip();
-  const folderName = `${opts.date}_${sanitize(opts.projectName)}_${sanitize(opts.blockName)}`;
+  const folderName = buildReportFolderName(opts.date, opts.projectName, opts.blockName);
   const rootFolder = zip.folder(folderName)!;
 
   const base64Map = await loadAllPhotoBase64(
     photos,
     'high',
-    (current) => opts.onProgress?.(current, photos.length + 2),
+    (current) => opts.onProgress?.(current, totalSteps),
   );
 
   const indexLines: string[] = [];
@@ -416,18 +563,66 @@ export async function generateZIP(opts: {
   index += `\n\n${indexLines.join('\n')}\n`;
 
   rootFolder.file('indice.txt', index);
-  opts.onProgress?.(photos.length + 1, photos.length + 2);
+  opts.onProgress?.(photos.length + 1, totalSteps);
+
+  const pdfBase64 = await FileSystem.readAsStringAsync(opts.pdfPath, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  rootFolder.file(PDF_FILENAME, pdfBase64, { base64: true });
+  opts.onProgress?.(photos.length + 2, totalSteps);
 
   const zipContent = await zip.generateAsync({ type: 'base64', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-  opts.onProgress?.(photos.length + 2, photos.length + 2);
+  opts.onProgress?.(totalSteps, totalSteps);
+  return zipContent;
+}
 
+export async function generateZIP(opts: {
+  blockName: string;
+  date: string;
+  blockId: number;
+  projectName: string;
+  onProgress?: (current: number, total: number) => void;
+}): Promise<string> {
+  const { uri: pdfPath } = await getOrGeneratePDF(opts);
+  const zipContent = await buildZIPContent({ ...opts, pdfPath });
+  const folderName = buildReportFolderName(opts.date, opts.projectName, opts.blockName);
   const zipPath = FileSystem.cacheDirectory + `${folderName}.zip`;
   await FileSystem.writeAsStringAsync(zipPath, zipContent, { encoding: FileSystem.EncodingType.Base64 });
   return zipPath;
 }
 
-function sanitize(s: string): string {
-  return s.replace(/[^a-zA-Z0-9\u00C0-\u00FF _-]/g, '').trim().replace(/\s+/g, '_');
+export async function getOrGenerateZIP(
+  opts: ReportExportOpts,
+  options?: { force?: boolean },
+): Promise<ReportExportResult> {
+  const reportDir = getReportDir(opts.date, opts.projectName, opts.blockName);
+  const zipPath = reportDir + ZIP_FILENAME;
+
+  if (!options?.force) {
+    const report = await getGeneratedReport(opts.blockId, opts.date);
+    if (await isCacheEntryValid(report, opts.blockId, opts.date, report?.zip_path)) {
+      return { uri: report!.zip_path!, fromCache: true };
+    }
+  }
+
+  const { uri: pdfPath } = await getOrGeneratePDF(opts, options);
+  const zipContent = await buildZIPContent({ ...opts, pdfPath });
+  await ensureReportDir(reportDir);
+  await writeFileReplacing(zipPath, zipContent, FileSystem.EncodingType.Base64);
+
+  const [photoCount, configHash] = await Promise.all([
+    getPhotoCountForBlockDate(opts.blockId, opts.date),
+    getReportConfigHash(),
+  ]);
+  await upsertGeneratedReport({
+    blockId: opts.blockId,
+    date: opts.date,
+    photoCount,
+    configHash,
+    zipPath,
+  });
+
+  return { uri: zipPath, fromCache: false };
 }
 
 export async function shareFile(uri: string): Promise<void> {

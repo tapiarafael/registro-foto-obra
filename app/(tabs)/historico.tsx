@@ -87,6 +87,8 @@ function BackButton({ onPress }: { onPress: () => void }) {
   );
 }
 
+const ListSeparator = () => <View style={styles.listSeparator} />;
+
 export default function HistoricoScreen() {
   const [level, setLevel] = useState<Level>('dates');
   const [date, setDate] = useState('');
@@ -170,7 +172,8 @@ export default function HistoricoScreen() {
           <FlatList
             key="dates"
             data={dates}
-            keyExtractor={(d, index) => d.date ?? `date-${index}`}
+            keyExtractor={(d) => d.date}
+            ItemSeparatorComponent={ListSeparator}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => (
               <HierarchyCard
@@ -200,10 +203,10 @@ export default function HistoricoScreen() {
           <FlatList
             key="photos-grid"
             data={photos}
-            keyExtractor={(p) => String(p.id)}
+            keyExtractor={(p) => `photo-${p.id}`}
             numColumns={3}
             contentContainerStyle={styles.grid}
-            columnWrapperStyle={{ gap: 6 }}
+            columnWrapperStyle={styles.gridRow}
             renderItem={({ item }) => (
               <Pressable style={styles.gridItem} onPress={() => setPreview(item)}>
                 <Image source={{ uri: getThumbnailUri(item.thumbnail_filename) }} style={styles.gridImg} />
@@ -216,9 +219,10 @@ export default function HistoricoScreen() {
         )
       ) : isHierarchyLevel(level) ? (
         <FlatList
-          key={level}
+          key={`hierarchy-${level}`}
           data={hierarchyItems}
-          keyExtractor={(x, index) => (x.id != null ? String(x.id) : `item-${index}`)}
+          keyExtractor={(x, index) => `${level}-${x.id ?? index}`}
+          ItemSeparatorComponent={ListSeparator}
           contentContainerStyle={styles.list}
           renderItem={({ item }) => (
             <HierarchyCard
@@ -265,8 +269,10 @@ function PhotoPreview({ preview, onClose }: PhotoPreviewProps) {
 const c = colors.light;
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: c.background },
-  list: { padding: 16, gap: 10 },
-  grid: { padding: 12, gap: 6 },
+  list: { padding: 16 },
+  listSeparator: { height: 10 },
+  grid: { padding: 12 },
+  gridRow: { gap: 6, marginBottom: 6 },
   gridItem: { flex: 1 / 3, aspectRatio: 1, borderRadius: 8, overflow: 'hidden', backgroundColor: c.secondary, position: 'relative' },
   gridImg: { width: '100%', height: '100%' },
   gridBadge: { position: 'absolute', bottom: 4, left: 4, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },

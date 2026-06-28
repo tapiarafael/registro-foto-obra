@@ -135,6 +135,18 @@ export interface DateSummary {
   block_count: number;
 }
 
+export interface GeneratedReport {
+  id: number;
+  report_date: string;
+  block_id: number;
+  photo_count: number;
+  generated_at: string;
+  status: string;
+  pdf_path: string | null;
+  zip_path: string | null;
+  config_hash: string | null;
+}
+
 // ===== DB CONNECTION =====
 let _db: SQLite.SQLiteDatabase | null = null;
 let _initPromise: Promise<SQLite.SQLiteDatabase> | null = null;
@@ -218,14 +230,19 @@ export async function archiveBlock(id: number, restore = false): Promise<void> {
   await db.runAsync(`UPDATE block SET archived_at=${restore ? 'NULL' : "datetime('now')"}, updated_at=datetime('now') WHERE id=?`, [id]);
 }
 
-export async function deleteBlock(id: number): Promise<void> {
+export async function deleteBlock(id: number): Promise<GeneratedReport[]> {
   const db = await getDatabase();
   const c = await db.getFirstAsync<{ count: number }>(`
     SELECT COUNT(*) as count FROM photo p
     JOIN photo_group pg ON pg.id=p.photo_group_id JOIN unit u ON u.id=pg.unit_id
     JOIN floor f ON f.id=u.floor_id JOIN building b ON b.id=f.building_id WHERE b.block_id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos nesta quadra.');
+  let reports: GeneratedReport[] = [];
   await db.withTransactionAsync(async () => {
+    reports = await db.getAllAsync<GeneratedReport>(
+      'SELECT * FROM generated_report WHERE block_id=?',
+      [id],
+    );
     await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
       SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id JOIN building b ON b.id=f.building_id WHERE b.block_id=?)`, [id]);
     await db.runAsync(`DELETE FROM unit WHERE floor_id IN (
@@ -235,6 +252,7 @@ export async function deleteBlock(id: number): Promise<void> {
     await db.runAsync('DELETE FROM generated_report WHERE block_id=?', [id]);
     await db.runAsync('DELETE FROM block WHERE id=?', [id]);
   });
+  return reports;
 }
 
 // ===== BUILDINGS (PRÉDIOS) =====
@@ -685,6 +703,82 @@ export async function getBlockPhotoCountForDate(date: string): Promise<{ block_i
   `, [date]);
 }
 
+export async function getPhotoCountForBlockDate(blockId: number, date: string): Promise<number> {
+  const db = await getDatabase();
+  const r = await db.getFirstAsync<{ count: number }>(`
+    SELECT COUNT(p.id) as count
+    FROM photo p
+    JOIN photo_group pg ON pg.id=p.photo_group_id
+    JOIN unit u ON u.id=pg.unit_id
+    JOIN floor f ON f.id=u.floor_id
+    JOIN building bl ON bl.id=f.building_id
+    WHERE bl.block_id=? AND p.captured_date=?
+  `, [blockId, date]);
+  return r?.count ?? 0;
+}
+
+export async function getGeneratedReport(blockId: number, date: string): Promise<GeneratedReport | null> {
+  const db = await getDatabase();
+  return db.getFirstAsync<GeneratedReport>(
+    'SELECT * FROM generated_report WHERE block_id=? AND report_date=?',
+    [blockId, date],
+  );
+}
+
+export async function getGeneratedReportsForDate(date: string): Promise<GeneratedReport[]> {
+  const db = await getDatabase();
+  return db.getAllAsync<GeneratedReport>(
+    'SELECT * FROM generated_report WHERE report_date=?',
+    [date],
+  );
+}
+
+export async function upsertGeneratedReport(data: {
+  blockId: number;
+  date: string;
+  photoCount: number;
+  configHash: string;
+  pdfPath?: string | null;
+  zipPath?: string | null;
+}): Promise<void> {
+  const db = await getDatabase();
+  const existing = await getGeneratedReport(data.blockId, data.date);
+  const pdfPath = data.pdfPath !== undefined ? data.pdfPath : existing?.pdf_path ?? null;
+  const zipPath = data.zipPath !== undefined ? data.zipPath : existing?.zip_path ?? null;
+  await db.runAsync(`
+    INSERT INTO generated_report (report_date, block_id, photo_count, config_hash, pdf_path, zip_path, generated_at, status)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 'ready')
+    ON CONFLICT(block_id, report_date) DO UPDATE SET
+      photo_count=excluded.photo_count,
+      config_hash=excluded.config_hash,
+      pdf_path=excluded.pdf_path,
+      zip_path=excluded.zip_path,
+      generated_at=datetime('now'),
+      status='ready'
+  `, [data.date, data.blockId, data.photoCount, data.configHash, pdfPath, zipPath]);
+}
+
+export async function deleteGeneratedReportsForDate(date: string): Promise<GeneratedReport[]> {
+  const db = await getDatabase();
+  const reports = await getGeneratedReportsForDate(date);
+  if (reports.length > 0) {
+    await db.runAsync('DELETE FROM generated_report WHERE report_date=?', [date]);
+  }
+  return reports;
+}
+
+export async function getReportConfigHash(): Promise<string> {
+  const [color, pagination, logo, grouping, quality, wm] = await Promise.all([
+    getAppSetting('report_primaryColor'),
+    getAppSetting('report_paginationMode'),
+    getAppSetting('report_logoPath'),
+    getAppSetting('report_groupingFields'),
+    getAppSetting('report_imageQuality'),
+    getWatermarkConfig(),
+  ]);
+  return JSON.stringify({ color, pagination, logo, grouping, quality, wm });
+}
+
 // ===== STORAGE =====
 export async function getStorageStats(): Promise<{
   total_bytes: number; photo_count: number;
@@ -702,13 +796,14 @@ export async function getStorageByDate(): Promise<{ date: string; photo_count: n
   return getPhotoCountsByDate();
 }
 
-export async function deletePhotosByDate(date: string): Promise<{ filenames: string[] }> {
+export async function deletePhotosByDate(date: string): Promise<{ filenames: string[]; reports: GeneratedReport[] }> {
   const db = await getDatabase();
   const photos = await db.getAllAsync<Photo>(
     `SELECT p.* FROM photo p WHERE p.captured_date=?`, [date]
   );
   const filenames = photos.flatMap(p => [p.internal_filename, p.thumbnail_filename]);
   const photoIds = photos.map(p => p.id);
+  const reports = await deleteGeneratedReportsForDate(date);
   if (photoIds.length > 0) {
     const placeholders = photoIds.map(() => '?').join(',');
     await db.withTransactionAsync(async () => {
@@ -719,7 +814,7 @@ export async function deletePhotosByDate(date: string): Promise<{ filenames: str
       `);
     });
   }
-  return { filenames };
+  return { filenames, reports };
 }
 
 // ===== BULK STRUCTURE GENERATION =====
