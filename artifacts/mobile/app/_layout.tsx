@@ -9,6 +9,7 @@ import { Feather } from "@expo/vector-icons";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
+import { ErrorUtils } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -19,9 +20,17 @@ import { AppProvider, useApp } from "@/context/AppContext";
 import colors from "@/constants/colors";
 
 SplashScreen.preventAutoHideAsync();
+console.log('[_layout] module loaded');
+
+const _defaultHandler = ErrorUtils.getGlobalHandler();
+ErrorUtils.setGlobalHandler((error, isFatal) => {
+  console.error('[GlobalError] fatal=' + String(isFatal), error?.message ?? error);
+  _defaultHandler(error, isFatal);
+});
 
 function RootLayoutNav() {
   const { isReady, isSetupComplete } = useApp();
+  console.log('[RootLayoutNav] render isReady=' + isReady + ' isSetupComplete=' + isSetupComplete);
   const router = useRouter();
   const segments = useSegments();
 
@@ -61,6 +70,7 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
+  console.log('[RootLayout] render');
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
