@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet, Text,
   TouchableOpacity, View,
@@ -10,7 +10,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { addPhoto, deletePhoto, getPhotosInGroup, type Photo } from '@/db/database';
+import { addPhoto, deletePhoto, getPhotosInGroup, getWatermarkConfig, type Photo, type WatermarkConfig } from '@/db/database';
 import { savePhoto, getPhotoUri, getThumbnailUri, formatDateTime, deletePhotoFiles } from '@/services/photoService';
 
 export default function CameraScreen() {
@@ -24,6 +24,7 @@ export default function CameraScreen() {
   const [preview, setPreview] = useState<Photo | null>(null);
   const [facing] = useState<'back' | 'front'>('back');
   const [flash, setFlash] = useState<'off' | 'on' | 'auto'>('off');
+  const [wmConfig, setWmConfig] = useState<WatermarkConfig | null>(null);
 
   const cycleFlash = () => setFlash((f) => (f === 'off' ? 'on' : f === 'on' ? 'auto' : 'off'));
   const flashLabel = flash === 'off' ? 'Flash' : flash === 'on' ? 'Flash ligado' : 'Flash auto';
@@ -34,7 +35,14 @@ export default function CameraScreen() {
     if (groupId) setPhotos(await getPhotosInGroup(groupId));
   }, [groupId]);
 
-  useFocusEffect(useCallback(() => { reload(); }, [reload]));
+  useFocusEffect(useCallback(() => {
+    reload();
+    getWatermarkConfig().then(setWmConfig);
+  }, [reload]));
+
+  useEffect(() => {
+    getWatermarkConfig().then(setWmConfig);
+  }, []);
 
   const persist = async (uri: string, source: 'CAMERA' | 'GALLERY') => {
     if (!groupId) return;
@@ -117,8 +125,23 @@ export default function CameraScreen() {
     );
   }
 
-  const wmLine1 = formatDateTime(new Date().toISOString());
-  const wmLine2 = `${captureNav.unit?.name ?? ''} · ${captureNav.service?.name ?? ''}`;
+  const wmEnabled = wmConfig?.enabled ?? true;
+  const wmFields = wmConfig?.fields ?? [];
+  const isEnabled = (key: string) => {
+    if (!wmConfig) return true;
+    const f = wmFields.find(f => f.field === key);
+    return f ? f.enabled : true;
+  };
+
+  const wmLines: string[] = [];
+  if (wmEnabled) {
+    if (isEnabled('datetime')) wmLines.push(formatDateTime(new Date().toISOString()));
+    if (isEnabled('quadra') && captureNav.block?.name) wmLines.push(`Quadra: ${captureNav.block.name}`);
+    if (isEnabled('predio') && captureNav.building?.name) wmLines.push(`Prédio: ${captureNav.building.name}`);
+    if (isEnabled('pavimento') && captureNav.floor?.name) wmLines.push(`Pav.: ${captureNav.floor.name}`);
+    if (isEnabled('unidade') && captureNav.unit?.name) wmLines.push(`Unidade: ${captureNav.unit.name}`);
+    if (isEnabled('servico') && captureNav.service?.name) wmLines.push(`Serviço: ${captureNav.service.name}`);
+  }
 
   return (
     <View style={styles.container}>
@@ -149,10 +172,13 @@ export default function CameraScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.watermark} pointerEvents="none">
-          <Text style={styles.wmText}>{wmLine1}</Text>
-          <Text style={styles.wmText}>{wmLine2}</Text>
-        </View>
+        {wmEnabled && wmLines.length > 0 && (
+          <View style={styles.watermark} pointerEvents="none">
+            {wmLines.map((line, i) => (
+              <Text key={i} style={styles.wmText}>{line}</Text>
+            ))}
+          </View>
+        )}
 
         <View style={styles.bottomBar}>
           <TouchableOpacity style={styles.galleryBtn} onPress={pickFromGallery} disabled={busy}>

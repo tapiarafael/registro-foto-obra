@@ -2,7 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import JSZip from 'jszip';
-import { getPhotosForReport, getAppSetting, type PhotoWithHierarchy } from '@/db/database';
+import { getPhotosForReport, getAppSetting, getWatermarkConfig, type PhotoWithHierarchy, type WatermarkConfig } from '@/db/database';
 import { formatDate, formatDateTime, formatDatePart, formatTime, getPhotoUri } from './photoService';
 
 // ── Grouping types ──────────────────────────────────────────────────────────
@@ -35,21 +35,17 @@ function getFieldSort(p: PhotoWithHierarchy, field: GroupField): number {
   }
 }
 
-// ── Photo caption field types ────────────────────────────────────────────────
-type PhotoField = 'date' | 'time' | 'block' | 'building' | 'floor' | 'unit' | 'service';
-const ALL_PHOTO_FIELDS: PhotoField[] = ['date', 'time', 'block', 'building', 'floor', 'unit', 'service'];
-
 // ── HTML builders ───────────────────────────────────────────────────────────
 function renderGroupedHTML(
   photos: PhotoWithHierarchy[],
   fields: GroupField[],
   base64Map: Map<string, string>,
   color: string,
-  photoFields: Set<PhotoField>,
+  wmConfig: WatermarkConfig,
   depth = 0,
 ): string {
   if (fields.length === 0 || photos.length === 0) {
-    return renderPhotoGrid(photos, base64Map, photoFields);
+    return renderPhotoGrid(photos, base64Map, wmConfig);
   }
   const [field, ...rest] = fields;
   const groupMap = new Map<string, PhotoWithHierarchy[]>();
@@ -76,7 +72,7 @@ function renderGroupedHTML(
   return sortedKeys.map(key => `
     <div>
       <${tag} style="${headingCSS[level]}">${FIELD_LABELS[field]}: ${escHtml(key)}</${tag}>
-      ${renderGroupedHTML(groupMap.get(key)!, rest, base64Map, color, photoFields, depth + 1)}
+      ${renderGroupedHTML(groupMap.get(key)!, rest, base64Map, color, wmConfig, depth + 1)}
     </div>
   `).join('');
 }
@@ -84,7 +80,7 @@ function renderGroupedHTML(
 function renderPhotoGrid(
   photos: PhotoWithHierarchy[],
   base64Map: Map<string, string>,
-  photoFields: Set<PhotoField>,
+  wmConfig: WatermarkConfig,
 ): string {
   if (photos.length === 0) return '';
   const rows: string[] = [];
@@ -93,8 +89,8 @@ function renderPhotoGrid(
     const p2 = photos[i + 1];
     rows.push(
       `<div style="display:flex;gap:10px;margin-bottom:12px;page-break-inside:avoid;">` +
-      buildPhotoCard(p1, base64Map.get(p1.internal_filename) ?? '', photoFields) +
-      (p2 ? buildPhotoCard(p2, base64Map.get(p2.internal_filename) ?? '', photoFields) : '<div style="flex:1;"></div>') +
+      buildPhotoCard(p1, base64Map.get(p1.internal_filename) ?? '', wmConfig) +
+      (p2 ? buildPhotoCard(p2, base64Map.get(p2.internal_filename) ?? '', wmConfig) : '<div style="flex:1;"></div>') +
       `</div>`
     );
   }
@@ -104,23 +100,33 @@ function renderPhotoGrid(
 function buildPhotoCard(
   photo: PhotoWithHierarchy,
   base64: string,
-  photoFields: Set<PhotoField>,
+  wmConfig: WatermarkConfig,
 ): string {
   const src = base64 ? `data:image/jpeg;base64,${base64}` : '';
 
-  // Compose caption sections
+  const isOn = (key: string) => {
+    if (!wmConfig.enabled) return false;
+    const f = wmConfig.fields.find(f => f.field === key);
+    return f ? f.enabled : true;
+  };
+
+  // datetime → cap-dt row (split into date + time parts for clarity)
   const dtParts: string[] = [];
-  if (photoFields.has('date')) dtParts.push(formatDatePart(photo.captured_at));
-  if (photoFields.has('time')) dtParts.push(formatTime(photo.captured_at));
+  if (isOn('datetime')) {
+    dtParts.push(formatDatePart(photo.captured_at));
+    dtParts.push(formatTime(photo.captured_at));
+  }
 
+  // location fields → cap-loc row
   const locParts: string[] = [];
-  if (photoFields.has('block') && photo.block_name) locParts.push(photo.block_name);
-  if (photoFields.has('building') && photo.building_name) locParts.push(photo.building_name);
-  if (photoFields.has('floor') && photo.floor_name) locParts.push(photo.floor_name);
+  if (isOn('quadra') && photo.block_name) locParts.push(photo.block_name);
+  if (isOn('predio') && photo.building_name) locParts.push(photo.building_name);
+  if (isOn('pavimento') && photo.floor_name) locParts.push(photo.floor_name);
 
+  // unit + service → cap-unit row
   const unitParts: string[] = [];
-  if (photoFields.has('unit') && photo.unit_name) unitParts.push(photo.unit_name);
-  if (photoFields.has('service') && photo.service_name) unitParts.push(photo.service_name);
+  if (isOn('unidade') && photo.unit_name) unitParts.push(photo.unit_name);
+  if (isOn('servico') && photo.service_name) unitParts.push(photo.service_name);
 
   const captionLines = [
     dtParts.length ? `<div class="cap-dt">${escHtml(dtParts.join(' '))}</div>` : '',
@@ -152,12 +158,12 @@ export async function generatePDF(opts: {
   onProgress?: (current: number, total: number) => void;
 }): Promise<string> {
   // Load all settings in parallel
-  const [colorSetting, paginationSetting, logoPathSetting, groupingStr, photoFieldsStr] = await Promise.all([
+  const [colorSetting, paginationSetting, logoPathSetting, groupingStr, wmConfig] = await Promise.all([
     getAppSetting('report_primaryColor'),
     getAppSetting('report_paginationMode'),
     getAppSetting('report_logoPath'),
     getAppSetting('report_groupingFields'),
-    getAppSetting('report_photoFields'),
+    getWatermarkConfig(),
   ]);
 
   const primaryColor = colorSetting || '#0D47A1';
@@ -173,14 +179,6 @@ export async function generatePDF(opts: {
       }
     } catch {}
     return DEFAULT_GROUPING;
-  })();
-
-  const enabledPhotoFields: Set<PhotoField> = (() => {
-    if (!photoFieldsStr) return new Set(ALL_PHOTO_FIELDS);
-    try {
-      const arr = JSON.parse(photoFieldsStr) as PhotoField[];
-      return new Set(Array.isArray(arr) ? arr : ALL_PHOTO_FIELDS);
-    } catch { return new Set(ALL_PHOTO_FIELDS); }
   })();
 
   // Load photos
@@ -225,7 +223,7 @@ export async function generatePDF(opts: {
   const bodyContent =
     photos.length === 0
       ? '<div style="text-align:center;color:#777;padding:48px 0;">Nenhuma foto registrada nesta data e quadra.</div>'
-      : renderGroupedHTML(photos, groupingFields, base64Map, primaryColor, enabledPhotoFields);
+      : renderGroupedHTML(photos, groupingFields, base64Map, primaryColor, wmConfig);
 
   const logoHTML = logoBase64
     ? `<img src="data:image/jpeg;base64,${logoBase64}" style="height:48px;max-width:140px;object-fit:contain;float:right;margin:0 0 6px 12px;" />`

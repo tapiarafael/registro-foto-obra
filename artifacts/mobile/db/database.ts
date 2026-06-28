@@ -964,3 +964,48 @@ export async function setAppSetting(key: string, value: string): Promise<void> {
   const db = await getDatabase();
   await db.runAsync('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?,?)', [key, value]);
 }
+
+// ===== WATERMARK CONFIG =====
+export type WatermarkFieldKey = 'datetime' | 'quadra' | 'predio' | 'pavimento' | 'unidade' | 'servico';
+
+export interface WatermarkFieldItem {
+  field: WatermarkFieldKey;
+  enabled: boolean;
+}
+
+export interface WatermarkConfig {
+  enabled: boolean;
+  fields: WatermarkFieldItem[];
+}
+
+export const DEFAULT_WATERMARK_FIELDS: WatermarkFieldItem[] = [
+  { field: 'datetime', enabled: true },
+  { field: 'quadra', enabled: true },
+  { field: 'predio', enabled: true },
+  { field: 'pavimento', enabled: true },
+  { field: 'unidade', enabled: true },
+  { field: 'servico', enabled: true },
+];
+
+export async function getWatermarkConfig(): Promise<WatermarkConfig> {
+  const [enabledStr, fieldsStr] = await Promise.all([
+    getAppSetting('watermark_enabled'),
+    getAppSetting('watermark_fields'),
+  ]);
+  const enabled = enabledStr === null ? true : enabledStr === '1';
+  let fields: WatermarkFieldItem[] = DEFAULT_WATERMARK_FIELDS;
+  if (fieldsStr) {
+    try {
+      const parsed: WatermarkFieldItem[] = JSON.parse(fieldsStr);
+      if (Array.isArray(parsed) && parsed.length === 6) fields = parsed;
+    } catch {}
+  }
+  return { enabled, fields };
+}
+
+export async function saveWatermarkConfig(config: WatermarkConfig): Promise<void> {
+  await Promise.all([
+    setAppSetting('watermark_enabled', config.enabled ? '1' : '0'),
+    setAppSetting('watermark_fields', JSON.stringify(config.fields)),
+  ]);
+}

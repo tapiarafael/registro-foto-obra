@@ -75,6 +75,11 @@ export default function RelatoriosScreen() {
         <Text style={styles.configBtnText}>Configurações do relatório</Text>
         <Feather name="chevron-right" size={16} color={c.mutedForeground} />
       </TouchableOpacity>
+      <TouchableOpacity style={styles.configBtn} onPress={() => router.push('/configuracoes/marca-dagua')}>
+        <Feather name="droplet" size={16} color={c.primary} />
+        <Text style={styles.configBtnText}>Marca d'Água</Text>
+        <Feather name="chevron-right" size={16} color={c.mutedForeground} />
+      </TouchableOpacity>
       {dates.length === 0 ? (
         <EmptyState icon="file-text" title="Sem relatórios" message="Capture fotos para gerar relatórios em PDF ou exportar em ZIP." />
       ) : (
