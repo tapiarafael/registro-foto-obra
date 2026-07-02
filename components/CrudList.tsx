@@ -190,71 +190,70 @@ export default function CrudList<T extends CrudItem>({
     }
   };
 
-  const renderRow = (item: T, drag?: () => void, isActive?: boolean) => (
-    <ScaleDecorator>
-      <View style={[styles.row, isActive && styles.rowDragging]}>
-        {editMode ? (
-          <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() => toggleSelect(item.id)}
-            hitSlop={8}
-          >
-            <Feather
-              name={selectedIds.has(item.id) ? 'check-square' : 'square'}
-              size={22}
-              color={selectedIds.has(item.id) ? c.primary : c.mutedForeground}
-            />
-          </TouchableOpacity>
-        ) : null}
-        {canReorder && drag ? (
-          <TouchableOpacity style={styles.dragHandle} onLongPress={drag} delayLongPress={0} hitSlop={8}>
-            <Feather name="menu" size={20} color={c.mutedForeground} />
-          </TouchableOpacity>
-        ) : null}
-        <View style={styles.rowCard}>
-          <HierarchyCard
-            title={item.name}
-            subtitle={subtitleFor?.(item)}
-            left={<Feather name={icon} size={20} color={c.primary} />}
-            showChevron={!!onPressItem && !editMode}
-            onPress={
-              editMode
-                ? () => toggleSelect(item.id)
-                : onPressItem
-                  ? () => onPressItem(item)
-                  : undefined
-            }
-            onLongPress={!editMode ? enterEditMode : undefined}
-            right={
-              editMode ? undefined : (
-                <View style={styles.actions}>
-                  {onDuplicate && (
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => onDuplicate(item)} hitSlop={8}>
-                      <Feather name="copy" size={18} color={c.mutedForeground} />
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity style={styles.actionBtn} onPress={() => openEdit(item)} hitSlop={8}>
-                    <Feather name="edit-2" size={18} color={c.mutedForeground} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.actionBtn}
-                    onPress={() => confirmDelete(item)}
-                    hitSlop={8}
-                    disabled={deleteBusy}
-                  >
-                    <Feather name="trash-2" size={18} color={c.destructive} />
-                  </TouchableOpacity>
-                </View>
-              )
-            }
+  const renderRowContent = (item: T, drag?: () => void, isActive?: boolean) => (
+    <View style={[styles.row, isActive && styles.rowDragging]}>
+      {editMode ? (
+        <TouchableOpacity
+          style={styles.checkbox}
+          onPress={() => toggleSelect(item.id)}
+          hitSlop={8}
+        >
+          <Feather
+            name={selectedIds.has(item.id) ? 'check-square' : 'square'}
+            size={22}
+            color={selectedIds.has(item.id) ? c.primary : c.mutedForeground}
           />
-        </View>
+        </TouchableOpacity>
+      ) : null}
+      {canReorder && drag ? (
+        <TouchableOpacity style={styles.dragHandle} onLongPress={drag} delayLongPress={0} hitSlop={8}>
+          <Feather name="menu" size={20} color={c.mutedForeground} />
+        </TouchableOpacity>
+      ) : null}
+      <View style={styles.rowCard}>
+        <HierarchyCard
+          title={item.name}
+          subtitle={subtitleFor?.(item)}
+          left={<Feather name={icon} size={20} color={c.primary} />}
+          showChevron={!!onPressItem && !editMode}
+          onPress={
+            editMode
+              ? () => toggleSelect(item.id)
+              : onPressItem
+                ? () => onPressItem(item)
+                : undefined
+          }
+          onLongPress={!editMode ? enterEditMode : undefined}
+          right={
+            editMode ? undefined : (
+              <View style={styles.actions}>
+                {onDuplicate && (
+                  <TouchableOpacity style={styles.actionBtn} onPress={() => onDuplicate(item)} hitSlop={8}>
+                    <Feather name="copy" size={18} color={c.mutedForeground} />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={styles.actionBtn} onPress={() => openEdit(item)} hitSlop={8}>
+                  <Feather name="edit-2" size={18} color={c.mutedForeground} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() => confirmDelete(item)}
+                  hitSlop={8}
+                  disabled={deleteBusy}
+                >
+                  <Feather name="trash-2" size={18} color={c.destructive} />
+                </TouchableOpacity>
+              </View>
+            )
+          }
+        />
       </View>
-    </ScaleDecorator>
+    </View>
   );
 
-  const renderDraggableItem = ({ item, drag, isActive }: RenderItemParams<T>) =>
-    renderRow(item, drag, isActive);
+  const renderDraggableItem = ({ item, drag, isActive }: RenderItemParams<T>) => (
+    <ScaleDecorator>{renderRowContent(item, drag, isActive)}</ScaleDecorator>
+  );
 
   const noteText = editMode
     ? 'Selecione itens ou arraste para reordenar. Toque em Cancelar para sair.'
@@ -298,7 +297,7 @@ export default function CrudList<T extends CrudItem>({
             data={listData}
             keyExtractor={(i) => String(i.id)}
             contentContainerStyle={styles.list}
-            renderItem={({ item }) => renderRow(item)}
+            renderItem={({ item }) => renderRowContent(item)}
           />
         )}
 
