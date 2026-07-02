@@ -10,11 +10,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { getAppSetting, getReportShowLabels, setAppSetting } from '@/db/database';
 import colors from '@/constants/colors';
-
-// ── Types ────────────────────────────────────────────────────────────────────
-type PaginationMode = 'none' | 'current' | 'current_total';
-type ImageQuality = 'fast' | 'medium' | 'high';
-type GroupField = 'building' | 'floor' | 'unit' | 'service';
+import type { GroupField, ImageQuality, PaginationMode } from '@/services/pdfReportBuilder';
 
 interface GroupingItem {
   field: GroupField;

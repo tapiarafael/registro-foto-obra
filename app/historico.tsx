@@ -9,7 +9,8 @@ import {
   getUnitsForDate, getServicesForDateUnit, getPhotosForDateUnitService,
   type DateSummary, type PhotoWithHierarchy,
 } from '@/db/database';
-import { getPhotoUri, getThumbnailUri, formatDateLong, formatDateTime } from '@/services/photoService';
+import { getPhotoUri, getThumbnailUri } from '@/services/photoService';
+import { formatDateLong, formatDateTime } from '@/utils/datetime';
 import HierarchyCard from '@/components/HierarchyCard';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
 import HierarchyNavBar from '@/components/HierarchyNavBar';

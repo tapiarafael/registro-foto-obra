@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, Modal, Platform, StyleSheet, Text,
+  ActivityIndicator, Alert, Image, Modal, StyleSheet, Text,
   TouchableOpacity, View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -15,9 +15,9 @@ import {
 import colors from '@/constants/colors';
 import PhotoThumbnailStrip from '@/components/PhotoThumbnailStrip';
 import { useApp } from '@/context/AppContext';
-import { useRegistrarHome } from '@/hooks/useRegistrarHome';
 import { addPhoto, deletePhoto, getPhotosInGroup, getWatermarkConfig, type Photo, type WatermarkConfig } from '@/db/database';
-import { savePhoto, getPhotoUri, getThumbnailUri, formatDateTime, deletePhotoFiles } from '@/services/photoService';
+import { savePhoto, getPhotoUri, getThumbnailUri, deletePhotoFiles } from '@/services/photoService';
+import { formatDateTime } from '@/utils/datetime';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
@@ -26,8 +26,11 @@ type SaveItem = { uri: string; source: 'CAMERA' | 'GALLERY' };
 export default function CameraScreen() {
   const c = colors.light;
   const router = useRouter();
-  const goHome = useRegistrarHome();
-  const { captureNav, incrementTodayCount, refreshDashboard } = useApp();
+  const { captureNav, incrementTodayCount, refreshDashboard, resetCaptureNav } = useApp();
+  const goHome = useCallback(() => {
+    resetCaptureNav();
+    router.replace('/(tabs)');
+  }, [resetCaptureNav, router]);
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
   const cameraRef = useRef<CameraType>(null);
@@ -239,19 +242,6 @@ export default function CameraScreen() {
     if (photos.length > 0) router.push('/registrar/revisao');
     else router.back();
   };
-
-  if (Platform.OS === 'web') {
-    return (
-      <SafeAreaView style={styles.permWrap}>
-        <Feather name="camera-off" size={48} color={c.mutedForeground} />
-        <Text style={styles.permTitle}>Câmera indisponível</Text>
-        <Text style={styles.permText}>Use um build Android para registrar fotos.</Text>
-        <TouchableOpacity style={styles.permBack} onPress={() => router.back()}>
-          <Text style={styles.permBackText}>Voltar</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
 
   if (hasPermission === false) {
     return (

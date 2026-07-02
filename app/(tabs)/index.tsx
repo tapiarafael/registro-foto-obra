@@ -5,7 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { formatDateTime } from '@/services/photoService';
+import { formatDateTime } from '@/utils/datetime';
 
 export default function RegistrarScreen() {
   const router = useRouter();

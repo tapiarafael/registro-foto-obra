@@ -6,7 +6,8 @@ import {
   type PhotoWithHierarchy,
   type WatermarkConfig,
 } from '@/db/database';
-import { formatDate, formatDateTime, getPhotoUri, parseStoredTimestamp } from './photoService';
+import { formatDate, formatDateTime, parseStoredTimestamp } from '@/utils/datetime';
+import { getPhotoUri } from './photoService';
 
 const PDF_FILENAME = 'relatorio.pdf';
 

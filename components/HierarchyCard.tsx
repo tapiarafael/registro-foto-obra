@@ -18,7 +18,6 @@ interface Props {
   badge?: string | number;
   onPress?: () => void;
   onLongPress?: () => void;
-  archived?: boolean;
   showChevron?: boolean;
   left?: React.ReactNode;
   right?: React.ReactNode;
@@ -28,7 +27,7 @@ interface Props {
 
 export default function HierarchyCard({
   title, subtitle, badge, onPress, onLongPress,
-  archived = false, showChevron = true, left, right, photoCount, done = false,
+  showChevron = true, left, right, photoCount, done = false,
 }: Props) {
   const c = colors.light;
   const scale = useSharedValue(1);
@@ -40,7 +39,7 @@ export default function HierarchyCard({
     <Animated.View
       entering={FadeIn.duration(220)}
       layout={LinearTransition.duration(220)}
-      style={[styles.card, archived && styles.archived]}
+      style={styles.card}
     >
       <AnimatedPressable
         style={[styles.main, pressStyle]}
@@ -53,7 +52,7 @@ export default function HierarchyCard({
         {left && <View style={styles.leftSlot}>{left}</View>}
         <View style={styles.body}>
           <View style={styles.titleRow}>
-            <Text style={[styles.title, archived && styles.archivedText]} numberOfLines={1}>{title}</Text>
+            <Text style={styles.title} numberOfLines={1}>{title}</Text>
             {badge !== undefined && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{badge}</Text>
@@ -61,7 +60,7 @@ export default function HierarchyCard({
             )}
           </View>
           {subtitle ? (
-            <Text style={[styles.subtitle, archived && styles.archivedSubtext]} numberOfLines={2}>{subtitle}</Text>
+            <Text style={styles.subtitle} numberOfLines={2}>{subtitle}</Text>
           ) : null}
           {photoCount !== undefined && photoCount > 0 ? (
             <View style={styles.photoRow}>
@@ -102,14 +101,11 @@ const styles = StyleSheet.create({
     flex: 1, flexDirection: 'row', alignItems: 'center',
     paddingLeft: 16, paddingVertical: 14, paddingRight: 8,
   },
-  archived: { opacity: 0.5 },
   leftSlot: { marginRight: 12 },
   body: { flex: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { fontSize: 15, fontWeight: '600', color: c.foreground, flex: 1 },
-  archivedText: { color: c.mutedForeground, fontStyle: 'italic' },
   subtitle: { fontSize: 12, color: c.mutedForeground, marginTop: 2 },
-  archivedSubtext: { color: c.mutedForeground },
   badge: {
     backgroundColor: c.primary, borderRadius: 10,
     paddingHorizontal: 6, paddingVertical: 2,

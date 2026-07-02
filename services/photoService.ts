@@ -5,7 +5,7 @@ const PHOTOS_DIR = FileSystem.documentDirectory + 'photos/';
 const THUMBS_DIR = FileSystem.documentDirectory + 'photos/thumbs/';
 
 function generateId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
+  return crypto.randomUUID();
 }
 
 export async function ensureDirectories(): Promise<void> {
@@ -96,94 +96,4 @@ export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** SQLite datetime('now') and legacy rows: UTC without timezone suffix. */
-const SQLITE_UTC_DATETIME = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/;
-
-export function nowIsoTimestamp(): string {
-  return new Date().toISOString();
-}
-
-export function parseStoredTimestamp(value: string): Date {
-  const trimmed = value.trim();
-  const sqliteMatch = SQLITE_UTC_DATETIME.exec(trimmed);
-  if (sqliteMatch) {
-    return new Date(`${sqliteMatch[1]}T${sqliteMatch[2]}Z`);
-  }
-  return new Date(trimmed);
-}
-
-export function formatDateTime(isoString: string): string {
-  const d = parseStoredTimestamp(isoString);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  const hour = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  return `${day}/${month}/${year} ${hour}:${min}`;
-}
-
-export function formatDate(isoString: string): string {
-  const d = new Date(isoString + 'T00:00:00');
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${day}/${month}/${year}`;
-}
-
-export function formatDatePart(isoString: string): string {
-  const d = parseStoredTimestamp(isoString);
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-}
-
-export function formatTime(isoString: string): string {
-  const d = parseStoredTimestamp(isoString);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-export function formatDateLong(isoString: string): string {
-  const d = new Date(isoString + 'T00:00:00');
-  return d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-}
-
-export function buildWatermarkLines(opts: {
-  capturedAt: string;
-  blockName: string;
-  buildingName: string;
-  floorName: string;
-  unitName: string;
-  serviceName: string;
-  projectName?: string;
-}): string[] {
-  return [
-    formatDateTime(opts.capturedAt),
-    `${opts.blockName} · ${opts.buildingName} · ${opts.floorName}`,
-    `${opts.unitName} · ${opts.serviceName}`,
-    ...(opts.projectName ? [opts.projectName] : []),
-  ];
-}
-
-export async function getAppStorageInfo(): Promise<{ used: number; free: number }> {
-  try {
-    const fs = await FileSystem.getFreeDiskStorageAsync();
-    const total = await FileSystem.getTotalDiskCapacityAsync();
-    return { used: total - fs, free: fs };
-  } catch {
-    return { used: 0, free: 0 };
-  }
-}
-
-export function todayDateString(): string {
-  const d = new Date();
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `${d.getFullYear()}-${month}-${day}`;
-}
-
-export function toLocalDateString(iso: string): string {
-  const d = parseStoredTimestamp(iso);
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${month}-${day}`;
 }

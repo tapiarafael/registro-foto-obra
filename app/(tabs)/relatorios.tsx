@@ -10,7 +10,7 @@ import {
   type DateSummary,
 } from '@/db/database';
 import { getOrGeneratePDF, getOrGenerateZIP, isReportCacheReady, shareFile } from '@/services/reportService';
-import { formatDateLong } from '@/services/photoService';
+import { formatDateLong } from '@/utils/datetime';
 import HierarchyCard from '@/components/HierarchyCard';
 import EmptyState from '@/components/EmptyState';
 import ProgressModal from '@/components/ProgressModal';

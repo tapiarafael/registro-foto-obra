@@ -11,7 +11,8 @@ import { useApp } from '@/context/AppContext';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
 import EmptyState from '@/components/EmptyState';
 import { deletePhoto, getPhotosInGroup, type Photo } from '@/db/database';
-import { deletePhotoFiles, formatDateTime, getPhotoUri, getThumbnailUri } from '@/services/photoService';
+import { deletePhotoFiles, getPhotoUri, getThumbnailUri } from '@/services/photoService';
+import { formatDateTime } from '@/utils/datetime';
 
 export default function RevisaoScreen() {
   const c = colors.light;

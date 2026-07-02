@@ -6,7 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { getStorageStats, getStorageByDate, deletePhotosByDate } from '@/db/database';
 import { deleteReportArtifactsForDate } from '@/services/reportService';
-import { deletePhotoFilesByFilenames, formatFileSize, formatDateLong } from '@/services/photoService';
+import { deletePhotoFilesByFilenames, formatFileSize } from '@/services/photoService';
+import { formatDateLong } from '@/utils/datetime';
 
 export default function ArmazenamentoScreen() {
   const c = colors.light;

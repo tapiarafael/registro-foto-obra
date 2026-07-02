@@ -1,8 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { Platform } from 'react-native';
 import {
   Block, Building, Floor, InspectionSession, Project, Service, Unit,
-  getActiveSession, getDatabase, getProject, getTodayPhotoCount, startSession,
+  getActiveSession, getDatabase, getProject, getSessionById, getTodayPhotoCount, startSession,
 } from '@/db/database';
 
 export interface CaptureNav {
@@ -23,7 +22,6 @@ interface AppContextValue {
   captureNav: CaptureNav;
   todayPhotoCount: number;
   loadProject: () => Promise<void>;
-  setActiveSession: (s: InspectionSession | null) => void;
   beginSession: () => Promise<InspectionSession | null>;
   setCaptureNav: (nav: Partial<CaptureNav>) => void;
   resetCaptureNav: () => void;
@@ -40,7 +38,7 @@ const defaultNav: CaptureNav = {
 const AppContext = createContext<AppContextValue>({
   project: null, isReady: false, isSetupComplete: false,
   activeSession: null, captureNav: defaultNav, todayPhotoCount: 0,
-  loadProject: async () => {}, setActiveSession: () => {}, beginSession: async () => null,
+  loadProject: async () => {}, beginSession: async () => null,
   setCaptureNav: () => {}, resetCaptureNav: () => {}, setPhotoGroupId: () => {},
   incrementTodayCount: () => {},
   refreshDashboard: async () => {},
@@ -58,7 +56,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await Promise.race([
         getDatabase(),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('db-init-timeout')), Platform.OS === 'web' ? 2000 : 15000),
+          setTimeout(() => reject(new Error('db-init-timeout')), 15000),
         ),
       ]);
       const p = await getProject();
@@ -86,7 +84,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return existing;
     }
     const id = await startSession(project.id);
-    const { getSessionById } = await import('@/db/database');
     const session = await getSessionById(id);
     setActiveSession(session);
     setCaptureNavState(prev => ({ ...prev, sessionId: session?.id ?? id }));
@@ -127,7 +124,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider value={{
       project, isReady, isSetupComplete: !!project,
       activeSession, captureNav, todayPhotoCount,
-      loadProject, setActiveSession, beginSession,
+      loadProject, beginSession,
       setCaptureNav, resetCaptureNav, setPhotoGroupId, incrementTodayCount,
       refreshDashboard,
     }}>

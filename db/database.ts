@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 import { runMigrations, getSchemaVersion } from './migrate';
-import { nowIsoTimestamp, todayDateString, toLocalDateString } from '@/services/photoService';
+import { nowIsoTimestamp, todayDateString, toLocalDateString } from '@/utils/datetime';
 
 // ===== TYPES =====
 export interface Project {
@@ -19,7 +19,6 @@ export interface Block {
   project_id: number;
   name: string;
   sort_order: number;
-  archived_at: string | null;
   created_at: string;
   updated_at: string;
   building_count?: number;
@@ -31,7 +30,6 @@ export interface Building {
   block_id: number;
   name: string;
   sort_order: number;
-  archived_at: string | null;
   created_at: string;
   updated_at: string;
   floor_count?: number;
@@ -44,17 +42,9 @@ export interface Floor {
   name: string;
   numeric_reference: number | null;
   sort_order: number;
-  archived_at: string | null;
   created_at: string;
   updated_at: string;
   unit_count?: number;
-}
-
-export interface UnitType {
-  id: number;
-  name: string;
-  is_system_type: number;
-  sort_order: number;
 }
 
 export interface Unit {
@@ -64,10 +54,8 @@ export interface Unit {
   name: string;
   numeric_reference: number | null;
   sort_order: number;
-  archived_at: string | null;
   created_at: string;
   updated_at: string;
-  unit_type_name?: string;
   photo_count_today?: number;
 }
 
@@ -76,7 +64,6 @@ export interface Service {
   project_id: number;
   name: string;
   sort_order: number;
-  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -202,14 +189,6 @@ export async function updateProject(data: Partial<Project>): Promise<void> {
 export type StructureKind = 'block' | 'building' | 'floor' | 'unit' | 'service';
 export type StructureSortMode = 'name' | 'manual';
 
-const STRUCTURE_TABLE: Record<StructureKind, string> = {
-  block: 'block',
-  building: 'building',
-  floor: 'floor',
-  unit: 'unit',
-  service: 'service',
-};
-
 function structureSortSettingKey(kind: StructureKind, scopeId: number): string {
   return `structure_sort:${kind}:${scopeId}`;
 }
@@ -243,12 +222,11 @@ export async function reorderStructureItems(
   orderedIds: number[],
 ): Promise<void> {
   if (orderedIds.length === 0) return;
-  const table = STRUCTURE_TABLE[kind];
   const db = await getDatabase();
   await db.withTransactionAsync(async () => {
     for (let i = 0; i < orderedIds.length; i++) {
       await db.runAsync(
-        `UPDATE ${table} SET sort_order=?, updated_at=datetime("now") WHERE id=?`,
+        `UPDATE ${kind} SET sort_order=?, updated_at=datetime("now") WHERE id=?`,
         [i + 1, orderedIds[i]],
       );
     }
@@ -257,37 +235,36 @@ export async function reorderStructureItems(
 }
 
 export async function sortStructureByName(kind: StructureKind, scopeId: number): Promise<void> {
-  const table = STRUCTURE_TABLE[kind];
   const db = await getDatabase();
   let items: { id: number; name: string }[];
   switch (kind) {
     case 'block':
       items = await db.getAllAsync<{ id: number; name: string }>(
-        'SELECT id, name FROM block WHERE project_id=? AND archived_at IS NULL ORDER BY name COLLATE NOCASE, id',
+        'SELECT id, name FROM block WHERE project_id=? ORDER BY name COLLATE NOCASE, id',
         [scopeId],
       );
       break;
     case 'building':
       items = await db.getAllAsync<{ id: number; name: string }>(
-        'SELECT id, name FROM building WHERE block_id=? AND archived_at IS NULL ORDER BY name COLLATE NOCASE, id',
+        'SELECT id, name FROM building WHERE block_id=? ORDER BY name COLLATE NOCASE, id',
         [scopeId],
       );
       break;
     case 'floor':
       items = await db.getAllAsync<{ id: number; name: string }>(
-        'SELECT id, name FROM floor WHERE building_id=? AND archived_at IS NULL ORDER BY name COLLATE NOCASE, id',
+        'SELECT id, name FROM floor WHERE building_id=? ORDER BY name COLLATE NOCASE, id',
         [scopeId],
       );
       break;
     case 'unit':
       items = await db.getAllAsync<{ id: number; name: string }>(
-        'SELECT id, name FROM unit WHERE floor_id=? AND archived_at IS NULL ORDER BY name COLLATE NOCASE, id',
+        'SELECT id, name FROM unit WHERE floor_id=? ORDER BY name COLLATE NOCASE, id',
         [scopeId],
       );
       break;
     case 'service':
       items = await db.getAllAsync<{ id: number; name: string }>(
-        'SELECT id, name FROM service WHERE project_id=? AND archived_at IS NULL ORDER BY name COLLATE NOCASE, id',
+        'SELECT id, name FROM service WHERE project_id=? ORDER BY name COLLATE NOCASE, id',
         [scopeId],
       );
       break;
@@ -295,7 +272,7 @@ export async function sortStructureByName(kind: StructureKind, scopeId: number):
   await db.withTransactionAsync(async () => {
     for (let i = 0; i < items.length; i++) {
       await db.runAsync(
-        `UPDATE ${table} SET sort_order=?, updated_at=datetime("now") WHERE id=?`,
+        `UPDATE ${kind} SET sort_order=?, updated_at=datetime("now") WHERE id=?`,
         [i + 1, items[i].id],
       );
     }
@@ -308,13 +285,12 @@ function batchDeleteBlockedMessage(names: string[]): string {
 }
 
 // ===== BLOCKS (QUADRAS) =====
-export async function getBlocksLite(projectId: number, includeArchived = false): Promise<Block[]> {
+export async function getBlocksLite(projectId: number): Promise<Block[]> {
   const db = await getDatabase();
   const mode = await getStructureSortMode('block', projectId);
   const order = structureOrderClause('b', mode);
-  const where = includeArchived ? '' : 'AND b.archived_at IS NULL';
   return db.getAllAsync<Block>(`
-    SELECT b.* FROM block b WHERE b.project_id=? ${where}
+    SELECT b.* FROM block b WHERE b.project_id=?
     ORDER BY ${order}
   `, [projectId]);
 }
@@ -333,12 +309,6 @@ export async function updateBlock(id: number, data: { name?: string; sort_order?
     'UPDATE block SET name=COALESCE(?,name), sort_order=COALESCE(?,sort_order), updated_at=datetime("now") WHERE id=?',
     [data.name ?? null, data.sort_order ?? null, id]
   );
-}
-
-export async function archiveBlock(id: number, restore = false): Promise<void> {
-  const db = await getDatabase();
-  const val = restore ? null : "datetime('now')";
-  await db.runAsync(`UPDATE block SET archived_at=${restore ? 'NULL' : "datetime('now')"}, updated_at=datetime('now') WHERE id=?`, [id]);
 }
 
 export async function deleteBlock(id: number): Promise<GeneratedReport[]> {
@@ -404,13 +374,12 @@ export async function deleteBlocks(ids: number[]): Promise<GeneratedReport[]> {
 }
 
 // ===== BUILDINGS (PRÉDIOS) =====
-export async function getBuildingsLite(blockId: number, includeArchived = false): Promise<Building[]> {
+export async function getBuildingsLite(blockId: number): Promise<Building[]> {
   const db = await getDatabase();
   const mode = await getStructureSortMode('building', blockId);
   const order = structureOrderClause('b', mode);
-  const where = includeArchived ? '' : 'AND b.archived_at IS NULL';
   return db.getAllAsync<Building>(`
-    SELECT b.* FROM building b WHERE b.block_id=? ${where}
+    SELECT b.* FROM building b WHERE b.block_id=?
     ORDER BY ${order}
   `, [blockId]);
 }
@@ -429,11 +398,6 @@ export async function updateBuilding(id: number, data: { name?: string; sort_ord
     'UPDATE building SET name=COALESCE(?,name), sort_order=COALESCE(?,sort_order), updated_at=datetime("now") WHERE id=?',
     [data.name ?? null, data.sort_order ?? null, id],
   );
-}
-
-export async function archiveBuilding(id: number, restore = false): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync(`UPDATE building SET archived_at=${restore ? 'NULL' : "datetime('now')"}, updated_at=datetime('now') WHERE id=?`, [id]);
 }
 
 export async function deleteBuilding(id: number): Promise<void> {
@@ -534,7 +498,7 @@ async function fetchUnitsForFloors(db: SQLite.SQLiteDatabase, floorIds: number[]
   if (floorIds.length === 0) return [];
   const placeholders = floorIds.map(() => '?').join(',');
   return db.getAllAsync<Unit>(
-    `SELECT * FROM unit WHERE floor_id IN (${placeholders}) AND archived_at IS NULL ORDER BY sort_order`,
+    `SELECT * FROM unit WHERE floor_id IN (${placeholders}) ORDER BY sort_order`,
     floorIds,
   );
 }
@@ -547,7 +511,7 @@ export async function duplicateBuilding(
 ): Promise<number> {
   const db = await getDatabase();
   const floors = await db.getAllAsync<Floor>(
-    'SELECT * FROM floor WHERE building_id=? AND archived_at IS NULL ORDER BY sort_order',
+    'SELECT * FROM floor WHERE building_id=? ORDER BY sort_order',
     [sourceId],
   );
   const allUnits = await fetchUnitsForFloors(db, floors.map(f => f.id));
@@ -587,13 +551,12 @@ export async function duplicateBuilding(
 }
 
 // ===== FLOORS (PAVIMENTOS) =====
-export async function getFloorsLite(buildingId: number, includeArchived = false): Promise<Floor[]> {
+export async function getFloorsLite(buildingId: number): Promise<Floor[]> {
   const db = await getDatabase();
   const mode = await getStructureSortMode('floor', buildingId);
   const order = structureOrderClause('f', mode);
-  const where = includeArchived ? '' : 'AND archived_at IS NULL';
   return db.getAllAsync<Floor>(`
-    SELECT f.* FROM floor f WHERE f.building_id=? ${where} ORDER BY ${order}
+    SELECT f.* FROM floor f WHERE f.building_id=? ORDER BY ${order}
   `, [buildingId]);
 }
 
@@ -610,11 +573,6 @@ export async function updateFloor(id: number, data: { name?: string; sort_order?
   const db = await getDatabase();
   await db.runAsync('UPDATE floor SET name=COALESCE(?,name), sort_order=COALESCE(?,sort_order), updated_at=datetime("now") WHERE id=?',
     [data.name ?? null, data.sort_order ?? null, id]);
-}
-
-export async function archiveFloor(id: number, restore = false): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync(`UPDATE floor SET archived_at=${restore ? 'NULL' : "datetime('now')"}, updated_at=datetime('now') WHERE id=?`, [id]);
 }
 
 export async function deleteFloor(id: number): Promise<void> {
@@ -664,7 +622,7 @@ export async function duplicateFloor(
   const src = await db.getFirstAsync<Floor>('SELECT * FROM floor WHERE id=?', [sourceFloorId]);
   if (!src) throw new Error('Pavimento não encontrado');
   const units = await db.getAllAsync<Unit>(
-    'SELECT * FROM unit WHERE floor_id=? AND archived_at IS NULL ORDER BY sort_order',
+    'SELECT * FROM unit WHERE floor_id=? ORDER BY sort_order',
     [sourceFloorId],
   );
   const total = 1 + units.length;
@@ -686,22 +644,14 @@ export async function duplicateFloor(
   }
 }
 
-// ===== UNIT TYPES =====
-export async function getUnitTypes(): Promise<UnitType[]> {
-  const db = await getDatabase();
-  return db.getAllAsync<UnitType>('SELECT * FROM unit_type ORDER BY sort_order, name');
-}
-
 // ===== UNITS =====
-export async function getUnitsLite(floorId: number, includeArchived = false): Promise<Unit[]> {
+export async function getUnitsLite(floorId: number): Promise<Unit[]> {
   const db = await getDatabase();
   const mode = await getStructureSortMode('unit', floorId);
   const order = structureOrderClause('u', mode);
-  const where = includeArchived ? '' : 'AND u.archived_at IS NULL';
   return db.getAllAsync<Unit>(`
-    SELECT u.*, ut.name as unit_type_name
-    FROM unit u LEFT JOIN unit_type ut ON ut.id=u.unit_type_id
-    WHERE u.floor_id=? ${where} ORDER BY ${order}
+    SELECT u.* FROM unit u
+    WHERE u.floor_id=? ORDER BY ${order}
   `, [floorId]);
 }
 
@@ -720,11 +670,6 @@ export async function updateUnit(id: number, data: { name?: string; unit_type_id
     'UPDATE unit SET name=COALESCE(?,name), unit_type_id=COALESCE(?,unit_type_id), sort_order=COALESCE(?,sort_order), updated_at=datetime("now") WHERE id=?',
     [data.name ?? null, data.unit_type_id ?? null, data.sort_order ?? null, id],
   );
-}
-
-export async function archiveUnit(id: number, restore = false): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync(`UPDATE unit SET archived_at=${restore ? 'NULL' : "datetime('now')"}, updated_at=datetime('now') WHERE id=?`, [id]);
 }
 
 export async function deleteUnit(id: number): Promise<void> {
@@ -760,12 +705,11 @@ export async function deleteUnits(ids: number[]): Promise<void> {
 }
 
 // ===== SERVICES =====
-export async function getServices(projectId: number, includeArchived = false): Promise<Service[]> {
+export async function getServices(projectId: number): Promise<Service[]> {
   const db = await getDatabase();
   const mode = await getStructureSortMode('service', projectId);
   const order = structureOrderClause('service', mode);
-  const where = includeArchived ? '' : 'AND archived_at IS NULL';
-  return db.getAllAsync<Service>(`SELECT * FROM service WHERE project_id=? ${where} ORDER BY ${order}`, [projectId]);
+  return db.getAllAsync<Service>(`SELECT * FROM service WHERE project_id=? ORDER BY ${order}`, [projectId]);
 }
 
 export async function createService(projectId: number, name: string): Promise<number> {
@@ -782,11 +726,6 @@ export async function updateService(id: number, data: { name?: string; sort_orde
     'UPDATE service SET name=COALESCE(?,name), sort_order=COALESCE(?,sort_order), updated_at=datetime("now") WHERE id=?',
     [data.name ?? null, data.sort_order ?? null, id],
   );
-}
-
-export async function archiveService(id: number, restore = false): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync(`UPDATE service SET archived_at=${restore ? 'NULL' : "datetime('now')"}, updated_at=datetime('now') WHERE id=?`, [id]);
 }
 
 export async function deleteService(id: number): Promise<void> {
@@ -836,11 +775,6 @@ export async function getActiveSession(projectId: number): Promise<InspectionSes
 export async function getSessionById(id: number): Promise<InspectionSession | null> {
   const db = await getDatabase();
   return db.getFirstAsync<InspectionSession>('SELECT * FROM inspection_session WHERE id=?', [id]);
-}
-
-export async function finishSession(id: number): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync(`UPDATE inspection_session SET finished_at=? WHERE id=?`, [nowIsoTimestamp(), id]);
 }
 
 // ===== PHOTO GROUPS =====
@@ -986,9 +920,8 @@ export async function getFloorsForDate(buildingId: number, date: string): Promis
 export async function getUnitsForDate(floorId: number, date: string): Promise<(Unit & { photo_count: number })[]> {
   const db = await getDatabase();
   return db.getAllAsync<Unit & { photo_count: number }>(`
-    SELECT DISTINCT u.*, COUNT(p.id) as photo_count, ut.name as unit_type_name
+    SELECT DISTINCT u.*, COUNT(p.id) as photo_count
     FROM unit u
-    LEFT JOIN unit_type ut ON ut.id=u.unit_type_id
     JOIN photo_group pg ON pg.unit_id=u.id
     JOIN photo p ON p.photo_group_id=pg.id
     WHERE u.floor_id=? AND p.captured_date=?
@@ -1053,7 +986,6 @@ export async function getBlockPhotoCountForDate(date: string): Promise<{ block_i
     LEFT JOIN unit u ON u.floor_id=f.id
     LEFT JOIN photo_group pg ON pg.unit_id=u.id
     LEFT JOIN photo p ON p.photo_group_id=pg.id AND p.captured_date=?
-    WHERE b.archived_at IS NULL
     GROUP BY b.id ORDER BY b.sort_order
   `, [date]);
 }
@@ -1240,7 +1172,7 @@ export async function cloneBlock(
 ): Promise<number> {
   const db = await getDatabase();
   const buildings = await db.getAllAsync<Building>(
-    'SELECT * FROM building WHERE block_id=? AND archived_at IS NULL ORDER BY sort_order',
+    'SELECT * FROM building WHERE block_id=? ORDER BY sort_order',
     [sourceId],
   );
   const buildingIds = buildings.map(b => b.id);
@@ -1248,7 +1180,7 @@ export async function cloneBlock(
   if (buildingIds.length > 0) {
     const placeholders = buildingIds.map(() => '?').join(',');
     floors = await db.getAllAsync<Floor>(
-      `SELECT * FROM floor WHERE building_id IN (${placeholders}) AND archived_at IS NULL ORDER BY sort_order`,
+      `SELECT * FROM floor WHERE building_id IN (${placeholders}) ORDER BY sort_order`,
       buildingIds,
     );
   }
@@ -1300,7 +1232,7 @@ export async function cloneBlock(
 export async function getFloorCloneStats(floorId: number): Promise<{ units: number }> {
   const db = await getDatabase();
   const r = await db.getFirstAsync<{ count: number }>(
-    'SELECT COUNT(*) as count FROM unit WHERE floor_id=? AND archived_at IS NULL', [floorId]
+    'SELECT COUNT(*) as count FROM unit WHERE floor_id=?', [floorId]
   );
   return { units: r?.count ?? 0 };
 }
@@ -1308,11 +1240,11 @@ export async function getFloorCloneStats(floorId: number): Promise<{ units: numb
 export async function getBuildingCloneStats(buildingId: number): Promise<{ floors: number; units: number }> {
   const db = await getDatabase();
   const f = await db.getFirstAsync<{ count: number }>(
-    'SELECT COUNT(*) as count FROM floor WHERE building_id=? AND archived_at IS NULL', [buildingId]
+    'SELECT COUNT(*) as count FROM floor WHERE building_id=?', [buildingId]
   );
   const u = await db.getFirstAsync<{ count: number }>(`
     SELECT COUNT(*) as count FROM unit u JOIN floor f ON f.id=u.floor_id
-    WHERE f.building_id=? AND u.archived_at IS NULL AND f.archived_at IS NULL`, [buildingId]
+    WHERE f.building_id=?`, [buildingId]
   );
   return { floors: f?.count ?? 0, units: u?.count ?? 0 };
 }
@@ -1320,15 +1252,15 @@ export async function getBuildingCloneStats(buildingId: number): Promise<{ floor
 export async function getBlockCloneStats(blockId: number): Promise<{ buildings: number; floors: number; units: number }> {
   const db = await getDatabase();
   const b = await db.getFirstAsync<{ count: number }>(
-    'SELECT COUNT(*) as count FROM building WHERE block_id=? AND archived_at IS NULL', [blockId]
+    'SELECT COUNT(*) as count FROM building WHERE block_id=?', [blockId]
   );
   const f = await db.getFirstAsync<{ count: number }>(`
     SELECT COUNT(*) as count FROM floor f JOIN building bl ON bl.id=f.building_id
-    WHERE bl.block_id=? AND f.archived_at IS NULL AND bl.archived_at IS NULL`, [blockId]
+    WHERE bl.block_id=?`, [blockId]
   );
   const u = await db.getFirstAsync<{ count: number }>(`
     SELECT COUNT(*) as count FROM unit u JOIN floor f ON f.id=u.floor_id JOIN building bl ON bl.id=f.building_id
-    WHERE bl.block_id=? AND u.archived_at IS NULL AND f.archived_at IS NULL AND bl.archived_at IS NULL`, [blockId]
+    WHERE bl.block_id=?`, [blockId]
   );
   return { buildings: b?.count ?? 0, floors: f?.count ?? 0, units: u?.count ?? 0 };
 }
