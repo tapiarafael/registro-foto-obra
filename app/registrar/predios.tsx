@@ -1,24 +1,23 @@
 import React, { useCallback, useState } from 'react';
-import { FlatList, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { getBuildingsLite, type Building } from '@/db/database';
-import HierarchyCard from '@/components/HierarchyCard';
+import {
+  getBuildingsLite, createBuilding, updateBuilding, deleteBuilding, deleteBuildings,
+  type Building,
+} from '@/db/database';
+import CrudList from '@/components/CrudList';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
-import EmptyState from '@/components/EmptyState';
 
 export default function RegistrarPredios() {
   const router = useRouter();
   const { captureNav, setCaptureNav } = useApp();
   const [items, setItems] = useState<Building[]>([]);
 
-  useFocusEffect(useCallback(() => {
-    (async () => {
-      if (captureNav.block) setItems(await getBuildingsLite(captureNav.block.id));
-    })();
-  }, [captureNav.block]));
+  const reload = useCallback(async () => {
+    if (captureNav.block) setItems(await getBuildingsLite(captureNav.block.id));
+  }, [captureNav.block]);
+
+  useFocusEffect(useCallback(() => { reload(); }, [reload]));
 
   const select = (building: Building) => {
     setCaptureNav({ building, floor: null, unit: null, service: null, photoGroupId: null });
@@ -26,36 +25,23 @@ export default function RegistrarPredios() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <BreadcrumbBar items={[captureNav.block?.name ?? '']} />
-      {items.length === 0 ? (
-        <EmptyState
-          icon="home"
-          title="Nenhum prédio"
-          message="Cadastre prédios na aba Estrutura."
-          actionLabel="Cadastrar prédios"
-          onAction={() => captureNav.block && router.push({
-            pathname: '/estrutura/predios',
-            params: { blockId: String(captureNav.block.id), blockName: captureNav.block.name },
-          })}
-        />
-      ) : (
-        <FlatList
-          data={items}
-          keyExtractor={(b) => String(b.id)}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <HierarchyCard title={item.name} left={<View style={styles.icon} />} onPress={() => select(item)} />
-          )}
-        />
-      )}
-    </SafeAreaView>
+    <CrudList<Building>
+      items={items}
+      icon="home"
+      emptyTitle="Nenhum prédio"
+      emptyMessage="Crie o primeiro prédio desta quadra."
+      addLabel="Novo prédio"
+      header={<BreadcrumbBar items={[captureNav.block?.name ?? '']} />}
+      structureKind="building"
+      structureScopeId={captureNav.block?.id}
+      onItemsReordered={reload}
+      onPressItem={select}
+      onCreate={async (name) => {
+        if (captureNav.block) { await createBuilding(captureNav.block.id, name); await reload(); }
+      }}
+      onRename={async (b, name) => { await updateBuilding(b.id, { name }); await reload(); }}
+      onDelete={async (b) => { await deleteBuilding(b.id); await reload(); }}
+      onBatchDelete={async (ids) => { await deleteBuildings(ids); await reload(); }}
+    />
   );
 }
-
-const c = colors.light;
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: c.background },
-  list: { padding: 16, gap: 10 },
-  icon: { width: 8, height: 40, borderRadius: 4, backgroundColor: c.primary },
-});

@@ -35,6 +35,8 @@ interface Props<T extends CrudItem> {
   onBatchDelete?: (ids: number[]) => Promise<void>;
   onDuplicate?: (item: T) => void;
   headerNote?: string;
+  header?: React.ReactNode;
+  itemDone?: (item: T) => boolean;
   structureKind?: StructureKind;
   structureScopeId?: number;
   onItemsReordered?: () => void | Promise<void>;
@@ -43,7 +45,7 @@ interface Props<T extends CrudItem> {
 export default function CrudList<T extends CrudItem>({
   items, icon = 'box', emptyTitle, emptyMessage, addLabel,
   subtitleFor, onPressItem, onCreate, onRename, onDelete, onBatchDelete,
-  onDuplicate, headerNote, structureKind, structureScopeId, onItemsReordered,
+  onDuplicate, headerNote, header, itemDone, structureKind, structureScopeId, onItemsReordered,
 }: Props<T>) {
   const c = colors.light;
   const [modalVisible, setModalVisible] = useState(false);
@@ -214,6 +216,7 @@ export default function CrudList<T extends CrudItem>({
         <HierarchyCard
           title={item.name}
           subtitle={subtitleFor?.(item)}
+          done={itemDone?.(item)}
           left={<Feather name={icon} size={20} color={c.primary} />}
           showChevron={!!onPressItem && !editMode}
           onPress={
@@ -225,7 +228,7 @@ export default function CrudList<T extends CrudItem>({
           }
           onLongPress={!editMode ? enterEditMode : undefined}
           right={
-            editMode ? undefined : (
+            editMode ? (
               <View style={styles.actions}>
                 {onDuplicate && (
                   <TouchableOpacity style={styles.actionBtn} onPress={() => onDuplicate(item)} hitSlop={8}>
@@ -244,7 +247,7 @@ export default function CrudList<T extends CrudItem>({
                   <Feather name="trash-2" size={18} color={c.destructive} />
                 </TouchableOpacity>
               </View>
-            )
+            ) : undefined
           }
         />
       </View>
@@ -257,13 +260,12 @@ export default function CrudList<T extends CrudItem>({
 
   const noteText = editMode
     ? 'Selecione itens ou arraste para reordenar. Toque em Cancelar para sair.'
-    : headerNote
-      ? `${headerNote} Segure um item para selecionar ou reordenar.`
-      : 'Segure um item para selecionar ou reordenar.';
+    : headerNote ?? null;
 
   return (
     <GestureHandlerRootView style={styles.flex}>
       <SafeAreaView style={styles.container} edges={['bottom']}>
+        {header}
         {noteText ? <Text style={styles.note}>{noteText}</Text> : null}
 
         {editMode ? (
@@ -301,8 +303,12 @@ export default function CrudList<T extends CrudItem>({
           />
         )}
 
-        {items.length > 0 && !editMode && (
-          <TouchableOpacity style={styles.fab} onPress={openCreate} activeOpacity={0.85}>
+        {editMode && items.length > 0 && (
+          <TouchableOpacity
+            style={[styles.fab, canBatchDelete && styles.fabAboveBatch]}
+            onPress={openCreate}
+            activeOpacity={0.85}
+          >
             <Feather name="plus" size={26} color="#fff" />
           </TouchableOpacity>
         )}
@@ -376,6 +382,7 @@ const styles = StyleSheet.create({
     backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center', elevation: 4,
     shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
   },
+  fabAboveBatch: { bottom: 88 },
   batchBar: {
     position: 'absolute', left: 16, right: 16, bottom: 24,
     flexDirection: 'row', justifyContent: 'center',

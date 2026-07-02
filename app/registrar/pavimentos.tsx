@@ -1,24 +1,22 @@
 import React, { useCallback, useState } from 'react';
-import { FlatList, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { getFloorsLite, type Floor } from '@/db/database';
-import HierarchyCard from '@/components/HierarchyCard';
+import {
+  getFloorsLite, createFloor, updateFloor, deleteFloor, deleteFloors, type Floor,
+} from '@/db/database';
+import CrudList from '@/components/CrudList';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
-import EmptyState from '@/components/EmptyState';
 
 export default function RegistrarPavimentos() {
   const router = useRouter();
   const { captureNav, setCaptureNav } = useApp();
   const [items, setItems] = useState<Floor[]>([]);
 
-  useFocusEffect(useCallback(() => {
-    (async () => {
-      if (captureNav.building) setItems(await getFloorsLite(captureNav.building.id));
-    })();
-  }, [captureNav.building]));
+  const reload = useCallback(async () => {
+    if (captureNav.building) setItems(await getFloorsLite(captureNav.building.id));
+  }, [captureNav.building]);
+
+  useFocusEffect(useCallback(() => { reload(); }, [reload]));
 
   const select = (floor: Floor) => {
     setCaptureNav({ floor, unit: null, service: null, photoGroupId: null });
@@ -26,36 +24,23 @@ export default function RegistrarPavimentos() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <BreadcrumbBar items={[captureNav.block?.name ?? '', captureNav.building?.name ?? '']} />
-      {items.length === 0 ? (
-        <EmptyState
-          icon="layers"
-          title="Nenhum pavimento"
-          message="Cadastre pavimentos na aba Estrutura."
-          actionLabel="Cadastrar pavimentos"
-          onAction={() => captureNav.building && router.push({
-            pathname: '/estrutura/pavimentos',
-            params: { buildingId: String(captureNav.building.id), buildingName: captureNav.building.name },
-          })}
-        />
-      ) : (
-        <FlatList
-          data={items}
-          keyExtractor={(f) => String(f.id)}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <HierarchyCard title={item.name} left={<View style={styles.icon} />} onPress={() => select(item)} />
-          )}
-        />
-      )}
-    </SafeAreaView>
+    <CrudList<Floor>
+      items={items}
+      icon="layers"
+      emptyTitle="Nenhum pavimento"
+      emptyMessage="Crie o primeiro pavimento deste prédio."
+      addLabel="Novo pavimento"
+      header={<BreadcrumbBar items={[captureNav.block?.name ?? '', captureNav.building?.name ?? '']} />}
+      structureKind="floor"
+      structureScopeId={captureNav.building?.id}
+      onItemsReordered={reload}
+      onPressItem={select}
+      onCreate={async (name) => {
+        if (captureNav.building) { await createFloor(captureNav.building.id, name); await reload(); }
+      }}
+      onRename={async (f, name) => { await updateFloor(f.id, { name }); await reload(); }}
+      onDelete={async (f) => { await deleteFloor(f.id); await reload(); }}
+      onBatchDelete={async (ids) => { await deleteFloors(ids); await reload(); }}
+    />
   );
 }
-
-const c = colors.light;
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: c.background },
-  list: { padding: 16, gap: 10 },
-  icon: { width: 8, height: 40, borderRadius: 4, backgroundColor: c.primary },
-});
