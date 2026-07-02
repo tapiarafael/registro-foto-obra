@@ -98,6 +98,12 @@ export default function CrudList<T extends CrudItem>({
     setDeleteBusy(true);
     try {
       await onDelete(item);
+      setListData(prev => prev.filter(i => i.id !== item.id));
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
     } catch (e) {
       Alert.alert('Não foi possível excluir', e instanceof Error ? e.message : 'Erro desconhecido.');
     } finally {
@@ -138,7 +144,10 @@ export default function CrudList<T extends CrudItem>({
               setDeleteBusy(true);
               try {
                 await onBatchDelete(ids);
-                exitEditMode();
+                const deleted = new Set(ids);
+                setListData(prev => prev.filter(i => !deleted.has(i.id)));
+                setSelectedIds(new Set());
+                setEditMode(false);
               } catch (e) {
                 Alert.alert('Não foi possível excluir', e instanceof Error ? e.message : 'Erro desconhecido.');
               } finally {
@@ -281,12 +290,13 @@ export default function CrudList<T extends CrudItem>({
           </View>
         ) : null}
 
-        {items.length === 0 ? (
+        {listData.length === 0 ? (
           <EmptyState icon={icon} title={emptyTitle} message={emptyMessage} actionLabel={addLabel} onAction={openCreate} />
         ) : canReorder ? (
           <DraggableFlatList
             data={listData}
             keyExtractor={(i) => String(i.id)}
+            extraData={listData.length}
             contentContainerStyle={styles.list}
             onDragEnd={({ data }) => {
               setListData(data);
@@ -298,12 +308,13 @@ export default function CrudList<T extends CrudItem>({
           <FlatList
             data={listData}
             keyExtractor={(i) => String(i.id)}
+            extraData={listData.length}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => renderRowContent(item)}
           />
         )}
 
-        {editMode && items.length > 0 && (
+        {editMode && listData.length > 0 && (
           <TouchableOpacity
             style={[styles.fab, canBatchDelete && styles.fabAboveBatch]}
             onPress={openCreate}
