@@ -21,6 +21,8 @@ import { savePhoto, getPhotoUri, getThumbnailUri, formatDateTime, deletePhotoFil
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
+type SaveItem = { uri: string; source: 'CAMERA' | 'GALLERY' };
+
 export default function CameraScreen() {
   const c = colors.light;
   const router = useRouter();
@@ -30,12 +32,21 @@ export default function CameraScreen() {
   const device = useCameraDevice('back');
   const cameraRef = useRef<CameraType>(null);
   const focusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const zoomRef = useRef(1);
+  const pinchStartZoomRef = useRef(1);
+  const zoomBoundsRef = useRef({ min: 1, max: 1, neutral: 1 });
+  const saveQueueRef = useRef<SaveItem[]>([]);
+  const processingRef = useRef(false);
+  const savingCountRef = useRef(0);
+
   const [photos, setPhotos] = useState<Photo[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [savingCount, setSavingCount] = useState(0);
+  const [capturing, setCapturing] = useState(false);
   const [preview, setPreview] = useState<Photo | null>(null);
   const [flash, setFlash] = useState<'off' | 'on' | 'auto'>('off');
   const [wmConfig, setWmConfig] = useState<WatermarkConfig | null>(null);
-  const [exposure, setExposure] = useState(0);
+  const [zoom, setZoom] = useState(1);
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(true);
 
@@ -43,7 +54,10 @@ export default function CameraScreen() {
   const flashLabel = flash === 'off' ? 'Flash' : flash === 'on' ? 'Flash ligado' : 'Flash auto';
 
   const groupId = captureNav.photoGroupId;
-  const canAdjustExposure = device != null && device.minExposure < device.maxExposure;
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
 
   useFocusEffect(useCallback(() => {
     setActive(true);
@@ -63,6 +77,28 @@ export default function CameraScreen() {
     void getWatermarkConfig().then(setWmConfig);
   }, [reload]));
 
+  const updateZoom = useCallback((value: number) => {
+    const { min, max } = zoomBoundsRef.current;
+    const next = clamp(value, min, max);
+    zoomRef.current = next;
+    setZoom(next);
+  }, []);
+
+  useEffect(() => {
+    if (!device) return;
+    zoomBoundsRef.current = { min: device.minZoom, max: device.maxZoom, neutral: device.neutralZoom };
+    updateZoom(device.neutralZoom);
+  }, [device, updateZoom]);
+
+  const handlePinchBegin = useCallback(() => {
+    pinchStartZoomRef.current = zoomRef.current;
+  }, []);
+
+  const handlePinchUpdate = useCallback((scale: number) => {
+    const { min, max } = zoomBoundsRef.current;
+    updateZoom(clamp(pinchStartZoomRef.current * scale, min, max));
+  }, [updateZoom]);
+
   const handleFocusTap = useCallback(async (x: number, y: number) => {
     if (!device?.supportsFocus) return;
     setFocusPoint({ x, y });
@@ -74,12 +110,26 @@ export default function CameraScreen() {
   }, [device?.supportsFocus]);
 
   const tap = useMemo(() => Gesture.Tap().onEnd((e) => {
+    'worklet';
     runOnJS(handleFocusTap)(e.x, e.y);
   }), [handleFocusTap]);
 
-  const persist = async (uri: string, source: 'CAMERA' | 'GALLERY') => {
-    if (!groupId) return;
-    setBusy(true);
+  const pinch = useMemo(() => Gesture.Pinch()
+    .onBegin(() => {
+      'worklet';
+      runOnJS(handlePinchBegin)();
+    })
+    .onUpdate((e) => {
+      'worklet';
+      runOnJS(handlePinchUpdate)(e.scale);
+    }), [handlePinchBegin, handlePinchUpdate]);
+
+  const cameraGestures = useMemo(() => Gesture.Simultaneous(tap, pinch), [tap, pinch]);
+
+  const persistOne = useCallback(async (uri: string, source: 'CAMERA' | 'GALLERY'): Promise<boolean> => {
+    if (!groupId) return false;
+    savingCountRef.current += 1;
+    setSavingCount(savingCountRef.current);
     try {
       const saved = await savePhoto(uri);
       const now = new Date().toISOString();
@@ -96,21 +146,60 @@ export default function CameraScreen() {
       });
       incrementTodayCount();
       await reload();
+      return true;
     } catch (e) {
       console.error('persist photo error', e);
-      Alert.alert('Erro', 'Não foi possível salvar a foto.');
+      return false;
     } finally {
-      setBusy(false);
+      savingCountRef.current -= 1;
+      setSavingCount(savingCountRef.current);
     }
-  };
+  }, [groupId, incrementTodayCount, reload]);
+
+  const drainSaveQueue = useCallback(async () => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    try {
+      while (saveQueueRef.current.length > 0) {
+        const item = saveQueueRef.current.shift()!;
+        const ok = await persistOne(item.uri, item.source);
+        if (!ok) Alert.alert('Erro', 'Não foi possível salvar a foto.');
+      }
+    } finally {
+      processingRef.current = false;
+      if (saveQueueRef.current.length > 0) void drainSaveQueue();
+    }
+  }, [persistOne]);
+
+  const enqueuePersist = useCallback((uri: string, source: 'CAMERA' | 'GALLERY') => {
+    saveQueueRef.current.push({ uri, source });
+    void drainSaveQueue();
+  }, [drainSaveQueue]);
+
+  const persistMany = useCallback(async (uris: string[]) => {
+    if (!groupId || uris.length === 0) return;
+    setImporting(true);
+    let failures = 0;
+    for (const uri of uris) {
+      const ok = await persistOne(uri, 'GALLERY');
+      if (!ok) failures += 1;
+    }
+    setImporting(false);
+    if (failures > 0) {
+      Alert.alert('Erro', `Não foi possível importar ${failures} foto(s).`);
+    }
+  }, [groupId, persistOne]);
 
   const takePhoto = async () => {
-    if (!cameraRef.current || busy) return;
+    if (!cameraRef.current || capturing) return;
+    setCapturing(true);
     try {
       const photo = await cameraRef.current.takePhoto({ flash, enableShutterSound: false });
-      await persist(`file://${photo.path}`, 'CAMERA');
+      enqueuePersist(`file://${photo.path}`, 'CAMERA');
     } catch (e) {
       console.error('takePhoto error', e);
+    } finally {
+      setCapturing(false);
     }
   };
 
@@ -120,8 +209,15 @@ export default function CameraScreen() {
       Alert.alert('Permissão necessária', 'Conceda acesso às fotos para importar imagens.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ quality: 1, mediaTypes: ['images'] });
-    if (!result.canceled && result.assets[0]) await persist(result.assets[0].uri, 'GALLERY');
+    const result = await ImagePicker.launchImageLibraryAsync({
+      quality: 1,
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: 0,
+    });
+    if (!result.canceled && result.assets.length > 0) {
+      await persistMany(result.assets.map((a) => a.uri));
+    }
   };
 
   const removePhoto = (photo: Photo) => {
@@ -142,11 +238,6 @@ export default function CameraScreen() {
   const finish = () => {
     if (photos.length > 0) router.push('/registrar/revisao');
     else router.back();
-  };
-
-  const stepExposure = (delta: number) => {
-    if (!device) return;
-    setExposure((e) => clamp(Math.round((e + delta) * 2) / 2, device.minExposure, device.maxExposure));
   };
 
   if (Platform.OS === 'web') {
@@ -208,7 +299,7 @@ export default function CameraScreen() {
     if (isEnabled('servico') && captureNav.service?.name) wmLines.push(`Serviço: ${captureNav.service.name}`);
   }
 
-  const evLabel = exposure > 0 ? `+${exposure}` : String(exposure);
+  const galleryBusy = importing || savingCount > 0;
 
   return (
     <View style={styles.container}>
@@ -218,15 +309,15 @@ export default function CameraScreen() {
         device={device}
         isActive={active && !preview}
         photo={true}
-        exposure={exposure}
-        enableZoomGesture
+        zoom={zoom}
+        photoQualityBalance="speed"
       />
 
-      <GestureDetector gesture={tap}>
+      <GestureDetector gesture={cameraGestures}>
         <View
           style={StyleSheet.absoluteFill}
           accessibilityLabel="Área da câmera"
-          accessibilityHint="Toque para focar"
+          accessibilityHint="Toque para focar ou belisque para zoom"
         />
       </GestureDetector>
 
@@ -235,32 +326,6 @@ export default function CameraScreen() {
           pointerEvents="none"
           style={[styles.reticle, { left: focusPoint.x - 35, top: focusPoint.y - 35 }]}
         />
-      )}
-
-      {canAdjustExposure && (
-        <View style={styles.exposureCol} pointerEvents="box-none">
-          <TouchableOpacity
-            style={styles.evBtn}
-            onPress={() => stepExposure(0.5)}
-            accessibilityLabel="Aumentar exposição"
-          >
-            <Feather name="plus" size={20} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.evValue}
-            onPress={() => setExposure(0)}
-            accessibilityLabel={`Exposição ${evLabel}, toque para resetar`}
-          >
-            <Text style={styles.evText}>{evLabel}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.evBtn}
-            onPress={() => stepExposure(-0.5)}
-            accessibilityLabel="Diminuir exposição"
-          >
-            <Feather name="minus" size={20} color="#fff" />
-          </TouchableOpacity>
-        </View>
       )}
 
       <SafeAreaView style={styles.overlay} pointerEvents="box-none">
@@ -300,15 +365,15 @@ export default function CameraScreen() {
         )}
 
         <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.galleryBtn} onPress={pickFromGallery} disabled={busy}>
-            <Feather name="image" size={24} color="#fff" />
+          <TouchableOpacity style={styles.galleryBtn} onPress={pickFromGallery} disabled={galleryBusy}>
+            {galleryBusy ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="image" size={24} color="#fff" />}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.shutter} onPress={takePhoto} disabled={busy} activeOpacity={0.7}>
-            {busy ? <ActivityIndicator color={c.primary} /> : <View style={styles.shutterInner} />}
+          <TouchableOpacity style={styles.shutter} onPress={takePhoto} disabled={capturing} activeOpacity={0.7}>
+            {capturing ? <ActivityIndicator color={c.primary} /> : <View style={styles.shutterInner} />}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.doneBtn} onPress={finish} disabled={busy}>
+          <TouchableOpacity style={styles.doneBtn} onPress={finish}>
             <Feather name="check" size={24} color="#fff" />
             <Text style={styles.doneText}>{photos.length}</Text>
           </TouchableOpacity>
@@ -384,16 +449,6 @@ const styles = StyleSheet.create({
     position: 'absolute', width: 70, height: 70,
     borderWidth: 2, borderColor: '#fff', borderRadius: 2,
   },
-  exposureCol: {
-    position: 'absolute', right: 12, top: '38%',
-    alignItems: 'center', gap: 4, zIndex: 10,
-  },
-  evBtn: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center',
-  },
-  evValue: { minWidth: 48, minHeight: 36, alignItems: 'center', justifyContent: 'center', paddingVertical: 4 },
-  evText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   previewWrap: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', alignItems: 'center', justifyContent: 'center' },
   previewImg: { width: '100%', height: '70%' },
   previewBadge: { position: 'absolute', top: 60, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },

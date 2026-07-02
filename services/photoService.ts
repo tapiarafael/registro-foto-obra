@@ -31,21 +31,22 @@ export async function savePhoto(sourceUri: string): Promise<{
   const permanentUri = PHOTOS_DIR + internalFilename;
   const thumbnailUri = THUMBS_DIR + thumbnailFilename;
 
-  // Compress and save the main photo
   const manipulated = await ImageManipulator.manipulateAsync(
     sourceUri,
     [{ resize: { width: 1440 } }],
     { format: ImageManipulator.SaveFormat.JPEG, compress: 0.88 }
   );
-  await FileSystem.copyAsync({ from: manipulated.uri, to: permanentUri });
 
-  // Create thumbnail
   const thumb = await ImageManipulator.manipulateAsync(
-    sourceUri,
+    manipulated.uri,
     [{ resize: { width: 320 } }],
     { format: ImageManipulator.SaveFormat.JPEG, compress: 0.7 }
   );
-  await FileSystem.copyAsync({ from: thumb.uri, to: thumbnailUri });
+
+  await Promise.all([
+    FileSystem.copyAsync({ from: manipulated.uri, to: permanentUri }),
+    FileSystem.copyAsync({ from: thumb.uri, to: thumbnailUri }),
+  ]);
 
   const fileInfo = await FileSystem.getInfoAsync(permanentUri);
   const sizeBytes = (fileInfo as any).size ?? 0;
