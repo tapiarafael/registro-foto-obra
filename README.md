@@ -8,7 +8,7 @@ A fully offline Android app (Expo/React Native) for construction site engineers 
 - [pnpm](https://pnpm.io/)
 - [Expo CLI](https://docs.expo.dev/more/expo-cli/) (included via `@expo/cli`)
 - [EAS CLI](https://docs.expo.dev/build/setup/) for native builds (`npm install -g eas-cli`)
-- Android device with [Expo Go](https://expo.dev/go) for development, or EAS Build for installable APK/AAB
+- Android device with EAS Build (preview APK or dev client) — **camera requires a native build**; Expo Go does not include `react-native-vision-camera`
 
 ## Development
 
@@ -17,7 +17,7 @@ pnpm install
 pnpm start
 ```
 
-Scan the QR code with Expo Go on Android. Native features (SQLite, camera, print, sharing) only work on a real device — web preview is for visual checks only.
+Scan the QR code with a **development build** or install a preview APK. Native features (SQLite, camera, print, sharing) only work on a real device — web preview is for visual checks only. After changing native dependencies (e.g. camera), run `pnpm build:preview` and reinstall the APK.
 
 ```bash
 pnpm typecheck
@@ -49,7 +49,7 @@ pnpm build:production
 
 - Expo SDK 54 / React Native, expo-router
 - Local DB: expo-sqlite (`obra.db`, on-device)
-- Photos: expo-camera, expo-image-manipulator, file storage via `expo-file-system/legacy`
+- Photos: react-native-vision-camera, expo-image-manipulator, file storage via `expo-file-system/legacy`
 - Export: pdf-lib (PDF), fflate + expo-sharing (ZIP)
 
 ## Export notes
@@ -82,7 +82,7 @@ ZIP exports include the on-disk photos (stored, not recompressed). The archive i
 
 ## Gotchas
 
-- Web preview is for visual checks only — expo-sqlite/camera/print/sharing don't run on web; SQLite init is guarded by a web-only 2s timeout in `AppContext` so the UI still renders. Verify real behavior on Android.
+- Web preview is for visual checks only — expo-sqlite/camera/print/sharing don't run on web; SQLite init is guarded by a web-only 2s timeout in `AppContext` so the UI still renders. **Camera** uses Vision Camera and needs a new EAS build after native dep changes. Verify real behavior on Android.
 - After changing package versions, run `pnpm exec expo install --fix` to keep versions aligned with SDK 54.
 
 ## Planned work

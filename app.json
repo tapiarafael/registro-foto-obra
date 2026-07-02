@@ -37,9 +37,10 @@
         }
       ],
       [
-        "expo-camera",
+        "react-native-vision-camera",
         {
-          "cameraPermission": "O aplicativo precisa da câmera para registrar fotos da obra."
+          "cameraPermissionText": "O aplicativo precisa da câmera para registrar fotos da obra.",
+          "enableMicrophonePermission": false
         }
       ],
       [

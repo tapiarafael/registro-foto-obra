@@ -1,37 +1,58 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet, Text,
+  ActivityIndicator, Alert, Image, Modal, Platform, StyleSheet, Text,
   TouchableOpacity, View,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  Camera, useCameraDevice, useCameraPermission, type Camera as CameraType,
+} from 'react-native-vision-camera';
 import colors from '@/constants/colors';
+import PhotoThumbnailStrip from '@/components/PhotoThumbnailStrip';
 import { useApp } from '@/context/AppContext';
 import { useRegistrarHome } from '@/hooks/useRegistrarHome';
 import { addPhoto, deletePhoto, getPhotosInGroup, getWatermarkConfig, type Photo, type WatermarkConfig } from '@/db/database';
 import { savePhoto, getPhotoUri, getThumbnailUri, formatDateTime, deletePhotoFiles } from '@/services/photoService';
 
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+
 export default function CameraScreen() {
   const c = colors.light;
   const router = useRouter();
   const goHome = useRegistrarHome();
-  const { captureNav, incrementTodayCount } = useApp();
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView>(null);
+  const { captureNav, incrementTodayCount, refreshDashboard } = useApp();
+  const { hasPermission, requestPermission } = useCameraPermission();
+  const device = useCameraDevice('back');
+  const cameraRef = useRef<CameraType>(null);
+  const focusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<Photo | null>(null);
-  const [facing] = useState<'back' | 'front'>('back');
   const [flash, setFlash] = useState<'off' | 'on' | 'auto'>('off');
   const [wmConfig, setWmConfig] = useState<WatermarkConfig | null>(null);
+  const [exposure, setExposure] = useState(0);
+  const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
+  const [active, setActive] = useState(true);
 
   const cycleFlash = () => setFlash((f) => (f === 'off' ? 'on' : f === 'on' ? 'auto' : 'off'));
   const flashLabel = flash === 'off' ? 'Flash' : flash === 'on' ? 'Flash ligado' : 'Flash auto';
 
   const groupId = captureNav.photoGroupId;
+  const canAdjustExposure = device != null && device.minExposure < device.maxExposure;
+
+  useFocusEffect(useCallback(() => {
+    setActive(true);
+    return () => setActive(false);
+  }, []));
+
+  useEffect(() => () => {
+    if (focusTimer.current) clearTimeout(focusTimer.current);
+  }, []);
 
   const reload = useCallback(async () => {
     if (groupId) setPhotos(await getPhotosInGroup(groupId));
@@ -41,6 +62,20 @@ export default function CameraScreen() {
     void reload();
     void getWatermarkConfig().then(setWmConfig);
   }, [reload]));
+
+  const handleFocusTap = useCallback(async (x: number, y: number) => {
+    if (!device?.supportsFocus) return;
+    setFocusPoint({ x, y });
+    if (focusTimer.current) clearTimeout(focusTimer.current);
+    try {
+      await cameraRef.current?.focus({ x, y });
+    } catch { /* ponytail: some devices reject focus mid-adjust */ }
+    focusTimer.current = setTimeout(() => setFocusPoint(null), 1500);
+  }, [device?.supportsFocus]);
+
+  const tap = useMemo(() => Gesture.Tap().onEnd((e) => {
+    runOnJS(handleFocusTap)(e.x, e.y);
+  }), [handleFocusTap]);
 
   const persist = async (uri: string, source: 'CAMERA' | 'GALLERY') => {
     if (!groupId) return;
@@ -72,8 +107,8 @@ export default function CameraScreen() {
   const takePhoto = async () => {
     if (!cameraRef.current || busy) return;
     try {
-      const result = await cameraRef.current.takePictureAsync({ quality: 0.9, shutterSound: false });
-      if (result?.uri) await persist(result.uri, 'CAMERA');
+      const photo = await cameraRef.current.takePhoto({ flash, enableShutterSound: false });
+      await persist(`file://${photo.path}`, 'CAMERA');
     } catch (e) {
       console.error('takePhoto error', e);
     }
@@ -89,7 +124,7 @@ export default function CameraScreen() {
     if (!result.canceled && result.assets[0]) await persist(result.assets[0].uri, 'GALLERY');
   };
 
-  const removePhoto = async (photo: Photo) => {
+  const removePhoto = (photo: Photo) => {
     Alert.alert('Excluir foto', 'Deseja remover esta foto?', [
       { text: 'Cancelar', style: 'cancel' },
       {
@@ -98,16 +133,36 @@ export default function CameraScreen() {
           if (deleted) await deletePhotoFiles(deleted.internal_filename, deleted.thumbnail_filename);
           setPreview(null);
           await reload();
+          await refreshDashboard();
         },
       },
     ]);
   };
 
-  if (!permission) {
-    return <View style={styles.center}><ActivityIndicator color={c.primary} /></View>;
+  const finish = () => {
+    if (photos.length > 0) router.push('/registrar/revisao');
+    else router.back();
+  };
+
+  const stepExposure = (delta: number) => {
+    if (!device) return;
+    setExposure((e) => clamp(Math.round((e + delta) * 2) / 2, device.minExposure, device.maxExposure));
+  };
+
+  if (Platform.OS === 'web') {
+    return (
+      <SafeAreaView style={styles.permWrap}>
+        <Feather name="camera-off" size={48} color={c.mutedForeground} />
+        <Text style={styles.permTitle}>Câmera indisponível</Text>
+        <Text style={styles.permText}>Use um build Android para registrar fotos.</Text>
+        <TouchableOpacity style={styles.permBack} onPress={() => router.back()}>
+          <Text style={styles.permBackText}>Voltar</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
   }
 
-  if (!permission.granted) {
+  if (hasPermission === false) {
     return (
       <SafeAreaView style={styles.permWrap}>
         <Feather name="camera-off" size={48} color={c.mutedForeground} />
@@ -116,6 +171,18 @@ export default function CameraScreen() {
         <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
           <Text style={styles.permBtnText}>Conceder permissão</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.permBack} onPress={() => router.back()}>
+          <Text style={styles.permBackText}>Voltar</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  if (!device) {
+    return (
+      <SafeAreaView style={styles.permWrap}>
+        <Feather name="camera-off" size={48} color={c.mutedForeground} />
+        <Text style={styles.permTitle}>Câmera não disponível</Text>
         <TouchableOpacity style={styles.permBack} onPress={() => router.back()}>
           <Text style={styles.permBackText}>Voltar</Text>
         </TouchableOpacity>
@@ -141,9 +208,60 @@ export default function CameraScreen() {
     if (isEnabled('servico') && captureNav.service?.name) wmLines.push(`Serviço: ${captureNav.service.name}`);
   }
 
+  const evLabel = exposure > 0 ? `+${exposure}` : String(exposure);
+
   return (
     <View style={styles.container}>
-      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing={facing} flash={flash} />
+      <Camera
+        ref={cameraRef}
+        style={StyleSheet.absoluteFill}
+        device={device}
+        isActive={active && !preview}
+        photo={true}
+        exposure={exposure}
+        enableZoomGesture
+      />
+
+      <GestureDetector gesture={tap}>
+        <View
+          style={StyleSheet.absoluteFill}
+          accessibilityLabel="Área da câmera"
+          accessibilityHint="Toque para focar"
+        />
+      </GestureDetector>
+
+      {focusPoint && (
+        <View
+          pointerEvents="none"
+          style={[styles.reticle, { left: focusPoint.x - 35, top: focusPoint.y - 35 }]}
+        />
+      )}
+
+      {canAdjustExposure && (
+        <View style={styles.exposureCol} pointerEvents="box-none">
+          <TouchableOpacity
+            style={styles.evBtn}
+            onPress={() => stepExposure(0.5)}
+            accessibilityLabel="Aumentar exposição"
+          >
+            <Feather name="plus" size={20} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.evValue}
+            onPress={() => setExposure(0)}
+            accessibilityLabel={`Exposição ${evLabel}, toque para resetar`}
+          >
+            <Text style={styles.evText}>{evLabel}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.evBtn}
+            onPress={() => stepExposure(-0.5)}
+            accessibilityLabel="Diminuir exposição"
+          >
+            <Feather name="minus" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       <SafeAreaView style={styles.overlay} pointerEvents="box-none">
         <View style={styles.topBar}>
@@ -190,7 +308,7 @@ export default function CameraScreen() {
             {busy ? <ActivityIndicator color={c.primary} /> : <View style={styles.shutterInner} />}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.doneBtn} onPress={() => router.back()} disabled={busy}>
+          <TouchableOpacity style={styles.doneBtn} onPress={finish} disabled={busy}>
             <Feather name="check" size={24} color="#fff" />
             <Text style={styles.doneText}>{photos.length}</Text>
           </TouchableOpacity>
@@ -198,11 +316,19 @@ export default function CameraScreen() {
 
         {photos.length > 0 && (
           <View style={styles.strip}>
-            {photos.slice(0, 6).map(p => (
-              <Pressable key={p.id} onPress={() => setPreview(p)}>
-                <Image source={{ uri: getThumbnailUri(p.thumbnail_filename) }} style={styles.thumb} />
-              </Pressable>
-            ))}
+            <PhotoThumbnailStrip
+              photos={photos.map(p => ({
+                id: p.id,
+                uri: getThumbnailUri(p.thumbnail_filename),
+                capturedAt: p.captured_at,
+              }))}
+              onPressPhoto={(item) => setPreview(photos.find(p => p.id === item.id) ?? null)}
+              onDeletePhoto={(item) => {
+                const photo = photos.find(p => p.id === item.id);
+                if (photo) removePhoto(photo);
+              }}
+              size={56}
+            />
           </View>
         )}
       </SafeAreaView>
@@ -253,8 +379,21 @@ const styles = StyleSheet.create({
   shutterInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff' },
   doneBtn: { width: 56, height: 56, borderRadius: 28, backgroundColor: c.success, alignItems: 'center', justifyContent: 'center' },
   doneText: { color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 1 },
-  strip: { position: 'absolute', bottom: 130, left: 0, right: 0, flexDirection: 'row', gap: 6, paddingHorizontal: 16 },
-  thumb: { width: 48, height: 48, borderRadius: 6, borderWidth: 2, borderColor: '#fff' },
+  strip: { position: 'absolute', bottom: 130, left: 0, right: 0, paddingHorizontal: 16 },
+  reticle: {
+    position: 'absolute', width: 70, height: 70,
+    borderWidth: 2, borderColor: '#fff', borderRadius: 2,
+  },
+  exposureCol: {
+    position: 'absolute', right: 12, top: '38%',
+    alignItems: 'center', gap: 4, zIndex: 10,
+  },
+  evBtn: {
+    width: 48, height: 48, borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center',
+  },
+  evValue: { minWidth: 48, minHeight: 36, alignItems: 'center', justifyContent: 'center', paddingVertical: 4 },
+  evText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   previewWrap: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', alignItems: 'center', justifyContent: 'center' },
   previewImg: { width: '100%', height: '70%' },
   previewBadge: { position: 'absolute', top: 60, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },

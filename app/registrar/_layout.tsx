@@ -44,6 +44,7 @@ export default function RegistrarLayout() {
       <Stack.Screen name="unidades" options={{ title: 'Selecionar Unidade' }} />
       <Stack.Screen name="servicos" options={{ title: 'Selecionar Serviço' }} />
       <Stack.Screen name="camera" options={{ headerShown: false, animation: 'fade_from_bottom' }} />
+      <Stack.Screen name="revisao" options={{ title: 'Revisar fotos' }} />
     </Stack>
   );
 }
