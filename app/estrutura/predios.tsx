@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
-  getBuildingsLite, createBuilding, updateBuilding, deleteBuilding,
+  getBuildingsLite, createBuilding, updateBuilding, deleteBuilding, deleteBuildings,
   duplicateBuilding, getBuildingCloneStats, type Building,
 } from '@/db/database';
 import CrudList from '@/components/CrudList';
@@ -71,10 +71,14 @@ export default function EstruturaPredios() {
         emptyMessage="Crie o primeiro prédio desta quadra."
         addLabel="Novo prédio"
         headerNote="Toque em um prédio para gerenciar seus pavimentos."
+        structureKind="building"
+        structureScopeId={id}
+        onItemsReordered={reload}
         onPressItem={(b) => router.push({ pathname: '/estrutura/pavimentos', params: { buildingId: String(b.id), buildingName: b.name } })}
         onCreate={async (name) => { await createBuilding(id, name); await reload(); }}
         onRename={async (b, name) => { await updateBuilding(b.id, { name }); await reload(); }}
         onDelete={async (b) => { await deleteBuilding(b.id); await reload(); }}
+        onBatchDelete={async (ids) => { await deleteBuildings(ids); await reload(); }}
         onDuplicate={cloneBusy ? undefined : openClone}
       />
       <Modal visible={cloneVisible} transparent animationType="fade" onRequestClose={() => setCloneVisible(false)}>

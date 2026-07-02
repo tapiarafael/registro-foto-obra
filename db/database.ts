@@ -198,13 +198,124 @@ export async function updateProject(data: Partial<Project>): Promise<void> {
   );
 }
 
+// ===== STRUCTURE SORT =====
+export type StructureKind = 'block' | 'building' | 'floor' | 'unit' | 'service';
+export type StructureSortMode = 'name' | 'manual';
+
+const STRUCTURE_TABLE: Record<StructureKind, string> = {
+  block: 'block',
+  building: 'building',
+  floor: 'floor',
+  unit: 'unit',
+  service: 'service',
+};
+
+function structureSortSettingKey(kind: StructureKind, scopeId: number): string {
+  return `structure_sort:${kind}:${scopeId}`;
+}
+
+export async function getStructureSortMode(kind: StructureKind, scopeId: number): Promise<StructureSortMode> {
+  const db = await getDatabase();
+  const r = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM app_settings WHERE key=?',
+    [structureSortSettingKey(kind, scopeId)],
+  );
+  return r?.value === 'manual' ? 'manual' : 'name';
+}
+
+export async function setStructureSortMode(kind: StructureKind, scopeId: number, mode: StructureSortMode): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?,?)',
+    [structureSortSettingKey(kind, scopeId), mode],
+  );
+}
+
+function structureOrderClause(alias: string, mode: StructureSortMode): string {
+  return mode === 'manual'
+    ? `${alias}.sort_order, ${alias}.id`
+    : `${alias}.name COLLATE NOCASE, ${alias}.id`;
+}
+
+export async function reorderStructureItems(
+  kind: StructureKind,
+  scopeId: number,
+  orderedIds: number[],
+): Promise<void> {
+  if (orderedIds.length === 0) return;
+  const table = STRUCTURE_TABLE[kind];
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    for (let i = 0; i < orderedIds.length; i++) {
+      await db.runAsync(
+        `UPDATE ${table} SET sort_order=?, updated_at=datetime("now") WHERE id=?`,
+        [i + 1, orderedIds[i]],
+      );
+    }
+  });
+  await setStructureSortMode(kind, scopeId, 'manual');
+}
+
+export async function sortStructureByName(kind: StructureKind, scopeId: number): Promise<void> {
+  const table = STRUCTURE_TABLE[kind];
+  const db = await getDatabase();
+  let items: { id: number; name: string }[];
+  switch (kind) {
+    case 'block':
+      items = await db.getAllAsync<{ id: number; name: string }>(
+        'SELECT id, name FROM block WHERE project_id=? AND archived_at IS NULL ORDER BY name COLLATE NOCASE, id',
+        [scopeId],
+      );
+      break;
+    case 'building':
+      items = await db.getAllAsync<{ id: number; name: string }>(
+        'SELECT id, name FROM building WHERE block_id=? AND archived_at IS NULL ORDER BY name COLLATE NOCASE, id',
+        [scopeId],
+      );
+      break;
+    case 'floor':
+      items = await db.getAllAsync<{ id: number; name: string }>(
+        'SELECT id, name FROM floor WHERE building_id=? AND archived_at IS NULL ORDER BY name COLLATE NOCASE, id',
+        [scopeId],
+      );
+      break;
+    case 'unit':
+      items = await db.getAllAsync<{ id: number; name: string }>(
+        'SELECT id, name FROM unit WHERE floor_id=? AND archived_at IS NULL ORDER BY name COLLATE NOCASE, id',
+        [scopeId],
+      );
+      break;
+    case 'service':
+      items = await db.getAllAsync<{ id: number; name: string }>(
+        'SELECT id, name FROM service WHERE project_id=? AND archived_at IS NULL ORDER BY name COLLATE NOCASE, id',
+        [scopeId],
+      );
+      break;
+  }
+  await db.withTransactionAsync(async () => {
+    for (let i = 0; i < items.length; i++) {
+      await db.runAsync(
+        `UPDATE ${table} SET sort_order=?, updated_at=datetime("now") WHERE id=?`,
+        [i + 1, items[i].id],
+      );
+    }
+  });
+  await setStructureSortMode(kind, scopeId, 'name');
+}
+
+function batchDeleteBlockedMessage(names: string[]): string {
+  return `Não é possível excluir: existem fotos ou registros em uso em ${names.join(', ')}.`;
+}
+
 // ===== BLOCKS (QUADRAS) =====
 export async function getBlocksLite(projectId: number, includeArchived = false): Promise<Block[]> {
   const db = await getDatabase();
+  const mode = await getStructureSortMode('block', projectId);
+  const order = structureOrderClause('b', mode);
   const where = includeArchived ? '' : 'AND b.archived_at IS NULL';
   return db.getAllAsync<Block>(`
     SELECT b.* FROM block b WHERE b.project_id=? ${where}
-    ORDER BY b.sort_order, b.id
+    ORDER BY ${order}
   `, [projectId]);
 }
 
@@ -255,13 +366,52 @@ export async function deleteBlock(id: number): Promise<GeneratedReport[]> {
   return reports;
 }
 
+export async function deleteBlocks(ids: number[]): Promise<GeneratedReport[]> {
+  if (ids.length === 0) return [];
+  const db = await getDatabase();
+  const placeholders = ids.map(() => '?').join(',');
+  const blocked = await db.getAllAsync<{ name: string }>(`
+    SELECT DISTINCT b.name FROM block b
+    WHERE b.id IN (${placeholders})
+    AND EXISTS (
+      SELECT 1 FROM photo p
+      JOIN photo_group pg ON pg.id=p.photo_group_id
+      JOIN unit u ON u.id=pg.unit_id
+      JOIN floor f ON f.id=u.floor_id
+      JOIN building bl ON bl.id=f.building_id
+      WHERE bl.block_id=b.id
+    )`, ids);
+  if (blocked.length > 0) {
+    throw new Error(batchDeleteBlockedMessage(blocked.map(b => b.name)));
+  }
+  let reports: GeneratedReport[] = [];
+  await db.withTransactionAsync(async () => {
+    reports = await db.getAllAsync<GeneratedReport>(
+      `SELECT * FROM generated_report WHERE block_id IN (${placeholders})`,
+      ids,
+    );
+    await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
+      SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id JOIN building bl ON bl.id=f.building_id
+      WHERE bl.block_id IN (${placeholders}))`, ids);
+    await db.runAsync(`DELETE FROM unit WHERE floor_id IN (
+      SELECT f.id FROM floor f JOIN building bl ON bl.id=f.building_id WHERE bl.block_id IN (${placeholders}))`, ids);
+    await db.runAsync(`DELETE FROM floor WHERE building_id IN (SELECT id FROM building WHERE block_id IN (${placeholders}))`, ids);
+    await db.runAsync(`DELETE FROM building WHERE block_id IN (${placeholders})`, ids);
+    await db.runAsync(`DELETE FROM generated_report WHERE block_id IN (${placeholders})`, ids);
+    await db.runAsync(`DELETE FROM block WHERE id IN (${placeholders})`, ids);
+  });
+  return reports;
+}
+
 // ===== BUILDINGS (PRÉDIOS) =====
 export async function getBuildingsLite(blockId: number, includeArchived = false): Promise<Building[]> {
   const db = await getDatabase();
+  const mode = await getStructureSortMode('building', blockId);
+  const order = structureOrderClause('b', mode);
   const where = includeArchived ? '' : 'AND b.archived_at IS NULL';
   return db.getAllAsync<Building>(`
     SELECT b.* FROM building b WHERE b.block_id=? ${where}
-    ORDER BY b.sort_order, b.id
+    ORDER BY ${order}
   `, [blockId]);
 }
 
@@ -273,9 +423,12 @@ export async function createBuilding(blockId: number, name: string): Promise<num
   return r.lastInsertRowId;
 }
 
-export async function updateBuilding(id: number, data: { name?: string }): Promise<void> {
+export async function updateBuilding(id: number, data: { name?: string; sort_order?: number }): Promise<void> {
   const db = await getDatabase();
-  await db.runAsync('UPDATE building SET name=COALESCE(?,name), updated_at=datetime("now") WHERE id=?', [data.name ?? null, id]);
+  await db.runAsync(
+    'UPDATE building SET name=COALESCE(?,name), sort_order=COALESCE(?,sort_order), updated_at=datetime("now") WHERE id=?',
+    [data.name ?? null, data.sort_order ?? null, id],
+  );
 }
 
 export async function archiveBuilding(id: number, restore = false): Promise<void> {
@@ -296,6 +449,32 @@ export async function deleteBuilding(id: number): Promise<void> {
     await db.runAsync('DELETE FROM unit WHERE floor_id IN (SELECT id FROM floor WHERE building_id=?)', [id]);
     await db.runAsync('DELETE FROM floor WHERE building_id=?', [id]);
     await db.runAsync('DELETE FROM building WHERE id=?', [id]);
+  });
+}
+
+export async function deleteBuildings(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await getDatabase();
+  const placeholders = ids.map(() => '?').join(',');
+  const blocked = await db.getAllAsync<{ name: string }>(`
+    SELECT DISTINCT b.name FROM building b
+    WHERE b.id IN (${placeholders})
+    AND EXISTS (
+      SELECT 1 FROM photo p
+      JOIN photo_group pg ON pg.id=p.photo_group_id
+      JOIN unit u ON u.id=pg.unit_id
+      JOIN floor f ON f.id=u.floor_id
+      WHERE f.building_id=b.id
+    )`, ids);
+  if (blocked.length > 0) {
+    throw new Error(batchDeleteBlockedMessage(blocked.map(b => b.name)));
+  }
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
+      SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id WHERE f.building_id IN (${placeholders}))`, ids);
+    await db.runAsync(`DELETE FROM unit WHERE floor_id IN (SELECT id FROM floor WHERE building_id IN (${placeholders}))`, ids);
+    await db.runAsync(`DELETE FROM floor WHERE building_id IN (${placeholders})`, ids);
+    await db.runAsync(`DELETE FROM building WHERE id IN (${placeholders})`, ids);
   });
 }
 
@@ -410,9 +589,11 @@ export async function duplicateBuilding(
 // ===== FLOORS (PAVIMENTOS) =====
 export async function getFloorsLite(buildingId: number, includeArchived = false): Promise<Floor[]> {
   const db = await getDatabase();
+  const mode = await getStructureSortMode('floor', buildingId);
+  const order = structureOrderClause('f', mode);
   const where = includeArchived ? '' : 'AND archived_at IS NULL';
   return db.getAllAsync<Floor>(`
-    SELECT f.* FROM floor f WHERE f.building_id=? ${where} ORDER BY f.sort_order, f.id
+    SELECT f.* FROM floor f WHERE f.building_id=? ${where} ORDER BY ${order}
   `, [buildingId]);
 }
 
@@ -446,6 +627,29 @@ export async function deleteFloor(id: number): Promise<void> {
     await db.runAsync('DELETE FROM photo_group WHERE unit_id IN (SELECT id FROM unit WHERE floor_id=?)', [id]);
     await db.runAsync('DELETE FROM unit WHERE floor_id=?', [id]);
     await db.runAsync('DELETE FROM floor WHERE id=?', [id]);
+  });
+}
+
+export async function deleteFloors(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await getDatabase();
+  const placeholders = ids.map(() => '?').join(',');
+  const blocked = await db.getAllAsync<{ name: string }>(`
+    SELECT DISTINCT f.name FROM floor f
+    WHERE f.id IN (${placeholders})
+    AND EXISTS (
+      SELECT 1 FROM photo p
+      JOIN photo_group pg ON pg.id=p.photo_group_id
+      JOIN unit u ON u.id=pg.unit_id
+      WHERE u.floor_id=f.id
+    )`, ids);
+  if (blocked.length > 0) {
+    throw new Error(batchDeleteBlockedMessage(blocked.map(b => b.name)));
+  }
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (SELECT id FROM unit WHERE floor_id IN (${placeholders}))`, ids);
+    await db.runAsync(`DELETE FROM unit WHERE floor_id IN (${placeholders})`, ids);
+    await db.runAsync(`DELETE FROM floor WHERE id IN (${placeholders})`, ids);
   });
 }
 
@@ -491,11 +695,13 @@ export async function getUnitTypes(): Promise<UnitType[]> {
 // ===== UNITS =====
 export async function getUnitsLite(floorId: number, includeArchived = false): Promise<Unit[]> {
   const db = await getDatabase();
+  const mode = await getStructureSortMode('unit', floorId);
+  const order = structureOrderClause('u', mode);
   const where = includeArchived ? '' : 'AND u.archived_at IS NULL';
   return db.getAllAsync<Unit>(`
     SELECT u.*, ut.name as unit_type_name
     FROM unit u LEFT JOIN unit_type ut ON ut.id=u.unit_type_id
-    WHERE u.floor_id=? ${where} ORDER BY u.sort_order, u.id
+    WHERE u.floor_id=? ${where} ORDER BY ${order}
   `, [floorId]);
 }
 
@@ -508,10 +714,12 @@ export async function createUnit(floorId: number, name: string, unitTypeId?: num
   return r.lastInsertRowId;
 }
 
-export async function updateUnit(id: number, data: { name?: string; unit_type_id?: number }): Promise<void> {
+export async function updateUnit(id: number, data: { name?: string; unit_type_id?: number; sort_order?: number }): Promise<void> {
   const db = await getDatabase();
-  await db.runAsync('UPDATE unit SET name=COALESCE(?,name), unit_type_id=COALESCE(?,unit_type_id), updated_at=datetime("now") WHERE id=?',
-    [data.name ?? null, data.unit_type_id ?? null, id]);
+  await db.runAsync(
+    'UPDATE unit SET name=COALESCE(?,name), unit_type_id=COALESCE(?,unit_type_id), sort_order=COALESCE(?,sort_order), updated_at=datetime("now") WHERE id=?',
+    [data.name ?? null, data.unit_type_id ?? null, data.sort_order ?? null, id],
+  );
 }
 
 export async function archiveUnit(id: number, restore = false): Promise<void> {
@@ -530,11 +738,34 @@ export async function deleteUnit(id: number): Promise<void> {
   });
 }
 
+export async function deleteUnits(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await getDatabase();
+  const placeholders = ids.map(() => '?').join(',');
+  const blocked = await db.getAllAsync<{ name: string }>(`
+    SELECT DISTINCT u.name FROM unit u
+    WHERE u.id IN (${placeholders})
+    AND EXISTS (
+      SELECT 1 FROM photo p
+      JOIN photo_group pg ON pg.id=p.photo_group_id
+      WHERE pg.unit_id=u.id
+    )`, ids);
+  if (blocked.length > 0) {
+    throw new Error(batchDeleteBlockedMessage(blocked.map(b => b.name)));
+  }
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (${placeholders})`, ids);
+    await db.runAsync(`DELETE FROM unit WHERE id IN (${placeholders})`, ids);
+  });
+}
+
 // ===== SERVICES =====
 export async function getServices(projectId: number, includeArchived = false): Promise<Service[]> {
   const db = await getDatabase();
+  const mode = await getStructureSortMode('service', projectId);
+  const order = structureOrderClause('service', mode);
   const where = includeArchived ? '' : 'AND archived_at IS NULL';
-  return db.getAllAsync<Service>(`SELECT * FROM service WHERE project_id=? ${where} ORDER BY sort_order, id`, [projectId]);
+  return db.getAllAsync<Service>(`SELECT * FROM service WHERE project_id=? ${where} ORDER BY ${order}`, [projectId]);
 }
 
 export async function createService(projectId: number, name: string): Promise<number> {
@@ -545,9 +776,12 @@ export async function createService(projectId: number, name: string): Promise<nu
   return r.lastInsertRowId;
 }
 
-export async function updateService(id: number, data: { name?: string }): Promise<void> {
+export async function updateService(id: number, data: { name?: string; sort_order?: number }): Promise<void> {
   const db = await getDatabase();
-  await db.runAsync('UPDATE service SET name=COALESCE(?,name), updated_at=datetime("now") WHERE id=?', [data.name ?? null, id]);
+  await db.runAsync(
+    'UPDATE service SET name=COALESCE(?,name), sort_order=COALESCE(?,sort_order), updated_at=datetime("now") WHERE id=?',
+    [data.name ?? null, data.sort_order ?? null, id],
+  );
 }
 
 export async function archiveService(id: number, restore = false): Promise<void> {
@@ -560,6 +794,20 @@ export async function deleteService(id: number): Promise<void> {
   const c = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM photo_group WHERE service_id=?', [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: este serviço está em uso.');
   await db.runAsync('DELETE FROM service WHERE id=?', [id]);
+}
+
+export async function deleteServices(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await getDatabase();
+  const placeholders = ids.map(() => '?').join(',');
+  const blocked = await db.getAllAsync<{ name: string }>(`
+    SELECT DISTINCT s.name FROM service s
+    WHERE s.id IN (${placeholders})
+    AND EXISTS (SELECT 1 FROM photo_group pg WHERE pg.service_id=s.id)`, ids);
+  if (blocked.length > 0) {
+    throw new Error(batchDeleteBlockedMessage(blocked.map(b => b.name)));
+  }
+  await db.runAsync(`DELETE FROM service WHERE id IN (${placeholders})`, ids);
 }
 
 // ===== INSPECTION SESSIONS =====

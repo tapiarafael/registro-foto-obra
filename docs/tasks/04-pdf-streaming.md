@@ -3,6 +3,7 @@
 **Priority:** Medium–High (large exports)  
 **Effort:** 3–5 days (full); 1 day (Phase A only)  
 **Risk:** High  
+**Status:** Done (pdf-lib rewrite); Phase A export warnings still pending  
 **Recommended order:** 5th (after core DB work)
 
 ## Problem

@@ -6,7 +6,7 @@ import {
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import {
-  getBlocksLite, createBlock, updateBlock, deleteBlock,
+  getBlocksLite, createBlock, updateBlock, deleteBlock, deleteBlocks,
   cloneBlock, getBlockCloneStats, type Block,
 } from '@/db/database';
 import { deleteReportArtifactFiles } from '@/services/reportService';
@@ -75,11 +75,19 @@ export default function EstruturaQuadras() {
         emptyMessage="Crie a primeira quadra da obra."
         addLabel="Nova quadra"
         headerNote="Toque em uma quadra para gerenciar seus prédios."
+        structureKind="block"
+        structureScopeId={project?.id}
+        onItemsReordered={reload}
         onPressItem={(b) => router.push({ pathname: '/estrutura/predios', params: { blockId: String(b.id), blockName: b.name } })}
         onCreate={async (name) => { if (project) { await createBlock(project.id, name); await reload(); } }}
         onRename={async (b, name) => { await updateBlock(b.id, { name }); await reload(); }}
         onDelete={async (b) => {
           const reports = await deleteBlock(b.id);
+          await deleteReportArtifactFiles(reports);
+          await reload();
+        }}
+        onBatchDelete={async (ids) => {
+          const reports = await deleteBlocks(ids);
           await deleteReportArtifactFiles(reports);
           await reload();
         }}

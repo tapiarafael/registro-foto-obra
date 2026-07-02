@@ -4,7 +4,7 @@ import {
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { getUnitsLite, createUnit, updateUnit, deleteUnit, cloneUnit, type Unit } from '@/db/database';
+import { getUnitsLite, createUnit, updateUnit, deleteUnit, deleteUnits, cloneUnit, type Unit } from '@/db/database';
 import CrudList from '@/components/CrudList';
 import colors from '@/constants/colors';
 
@@ -51,9 +51,13 @@ export default function EstruturaUnidades() {
         emptyTitle="Nenhuma unidade"
         emptyMessage="Crie a primeira unidade deste pavimento."
         addLabel="Nova unidade"
+        structureKind="unit"
+        structureScopeId={id}
+        onItemsReordered={reload}
         onCreate={async (name) => { await createUnit(id, name); await reload(); }}
         onRename={async (u, name) => { await updateUnit(u.id, { name }); await reload(); }}
         onDelete={async (u) => { await deleteUnit(u.id); await reload(); }}
+        onBatchDelete={async (ids) => { await deleteUnits(ids); await reload(); }}
         onDuplicate={openClone}
       />
       <Modal visible={cloneVisible} transparent animationType="fade" onRequestClose={() => setCloneVisible(false)}>

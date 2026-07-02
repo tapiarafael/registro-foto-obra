@@ -33,50 +33,58 @@ export default function HierarchyCard({
   const c = colors.light;
   const scale = useSharedValue(1);
   const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const pressable = !!(onPress || onLongPress);
+  const showRightSlot = done || right || (showChevron && onPress);
+
   return (
-    <AnimatedPressable
+    <Animated.View
       entering={FadeIn.duration(220)}
       layout={LinearTransition.duration(220)}
-      style={[styles.card, archived && styles.archived, pressStyle]}
-      onPress={onPress}
-      onLongPress={onLongPress}
-      onPressIn={() => { scale.value = withTiming(0.97, { duration: 90 }); }}
-      onPressOut={() => { scale.value = withTiming(1, { duration: 120 }); }}
-      disabled={!onPress}
+      style={[styles.card, archived && styles.archived]}
     >
-      {left && <View style={styles.leftSlot}>{left}</View>}
-      <View style={styles.body}>
-        <View style={styles.titleRow}>
-          <Text style={[styles.title, archived && styles.archivedText]} numberOfLines={1}>{title}</Text>
-          {badge !== undefined && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{badge}</Text>
-            </View>
-          )}
-        </View>
-        {subtitle ? (
-          <Text style={[styles.subtitle, archived && styles.archivedSubtext]} numberOfLines={2}>{subtitle}</Text>
-        ) : null}
-        {photoCount !== undefined && photoCount > 0 ? (
-          <View style={styles.photoRow}>
-            <Feather name="camera" size={11} color={c.primary} />
-            <Text style={styles.photoCount}>{photoCount} {photoCount === 1 ? 'foto' : 'fotos'} hoje</Text>
+      <AnimatedPressable
+        style={[styles.main, pressStyle]}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        onPressIn={() => { if (pressable) scale.value = withTiming(0.97, { duration: 90 }); }}
+        onPressOut={() => { scale.value = withTiming(1, { duration: 120 }); }}
+        disabled={!pressable}
+      >
+        {left && <View style={styles.leftSlot}>{left}</View>}
+        <View style={styles.body}>
+          <View style={styles.titleRow}>
+            <Text style={[styles.title, archived && styles.archivedText]} numberOfLines={1}>{title}</Text>
+            {badge !== undefined && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{badge}</Text>
+              </View>
+            )}
           </View>
+          {subtitle ? (
+            <Text style={[styles.subtitle, archived && styles.archivedSubtext]} numberOfLines={2}>{subtitle}</Text>
+          ) : null}
+          {photoCount !== undefined && photoCount > 0 ? (
+            <View style={styles.photoRow}>
+              <Feather name="camera" size={11} color={c.primary} />
+              <Text style={styles.photoCount}>{photoCount} {photoCount === 1 ? 'foto' : 'fotos'} hoje</Text>
+            </View>
+          ) : null}
+        </View>
+        {!right && showChevron && onPress ? (
+          <Feather name="chevron-right" size={20} color={c.mutedForeground} />
         ) : null}
-      </View>
-      {(done || right || (showChevron && onPress)) ? (
+      </AnimatedPressable>
+      {showRightSlot ? (
         <View style={styles.rightSlot}>
           {done ? (
             <View style={styles.doneBadge}>
               <Feather name="check" size={14} color="#fff" />
             </View>
           ) : null}
-          {right ? right : showChevron && onPress ? (
-            <Feather name="chevron-right" size={20} color={c.mutedForeground} />
-          ) : null}
+          {right ?? null}
         </View>
       ) : null}
-    </AnimatedPressable>
+    </Animated.View>
   );
 }
 
@@ -85,10 +93,14 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: c.card, borderRadius: colors.radius,
-    paddingHorizontal: 16, paddingVertical: 14, marginBottom: 8,
+    paddingRight: 8, marginBottom: 8,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05, shadowRadius: 2, elevation: 1,
     minHeight: 64,
+  },
+  main: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    paddingLeft: 16, paddingVertical: 14, paddingRight: 8,
   },
   archived: { opacity: 0.5 },
   leftSlot: { marginRight: 12 },
@@ -105,7 +117,7 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 11, color: '#fff', fontWeight: '600' },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   photoCount: { fontSize: 11, color: c.primary, fontWeight: '500' },
-  rightSlot: { marginLeft: 8, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rightSlot: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 8 },
   doneBadge: {
     width: 26, height: 26, borderRadius: 13, backgroundColor: c.success,
     alignItems: 'center', justifyContent: 'center',
