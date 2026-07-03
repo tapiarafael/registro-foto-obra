@@ -11,7 +11,7 @@ import {
 import type { PhotoWithHierarchy, WatermarkConfig } from '@/db/database';
 import { formatDate, formatDateTime, formatDatePart, formatTime, formatWeekNumber } from '@/utils/datetime';
 import { getPhotoUri, getThumbnailUri } from './photoService';
-import { loadReportFonts } from './reportFonts';
+import { loadReportFonts, registerPdfFontkit } from './reportFonts';
 
 export type ImageQuality = 'fast' | 'medium' | 'high';
 export type GroupField = 'building' | 'floor' | 'unit' | 'service';
@@ -755,6 +755,7 @@ export async function buildReportPdf(opts: {
   onProgress?: (current: number, total: number) => void;
 }): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
+  registerPdfFontkit(pdfDoc);
   const { font, fontBold } = await loadReportFonts(pdfDoc);
   const primaryRgb = hexToRgb(opts.primaryColor);
 
