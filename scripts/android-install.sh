@@ -25,3 +25,12 @@ if [ ! -f "$APK" ]; then
 fi
 
 "$ANDROID_HOME/platform-tools/adb" install -r "$APK"
+
+if [ "$VARIANT_LC" = "debug" ]; then
+  "$ANDROID_HOME/platform-tools/adb" reverse tcp:8081 tcp:8081 || true
+  echo
+  echo "Debug APK installed. Start Metro before opening the app:"
+  echo "  pnpm start"
+  echo
+  echo "Or use pnpm android to build, start Metro, and launch in one step."
+fi
