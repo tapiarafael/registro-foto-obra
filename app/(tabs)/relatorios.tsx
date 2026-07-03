@@ -117,11 +117,17 @@ export default function RelatoriosScreen() {
       );
     });
 
-  const exportPDF = async (block: { block_id: number; block_name: string }, date: string) => {
+  const exportPDF = async (
+    block: { block_id: number; block_name: string },
+    date: string,
+    options?: { force?: boolean },
+  ) => {
     const key = `pdf-${block.block_id}-${date}`;
     setBusy(key);
     try {
-      const { ready } = await isReportCacheReady(block.block_id, date, 'pdf');
+      const { ready } = options?.force
+        ? { ready: false }
+        : await isReportCacheReady(block.block_id, date, 'pdf');
       if (!ready) setProgress({ kind: 'pdf', phase: 'reading', current: 0, total: 0 });
       const { uri } = await getOrGeneratePDF({
         projectName: project?.name ?? 'Obra',
@@ -130,7 +136,7 @@ export default function RelatoriosScreen() {
         blockId: block.block_id,
         date,
         onProgress: ready ? undefined : handlePdfProgress,
-      });
+      }, { force: options?.force });
       if (!ready) setProgress(null);
       await shareFile(uri);
       if (expanded === date) {
@@ -142,11 +148,16 @@ export default function RelatoriosScreen() {
     } finally { setBusy(null); setProgress(null); }
   };
 
-  const doExportZIP = async (block: { block_id: number; block_name: string }, date: string) => {
+  const doExportZIP = async (
+    block: { block_id: number; block_name: string },
+    date: string,
+    options?: { force?: boolean },
+  ) => {
     const key = `zip-${block.block_id}-${date}`;
     setBusy(key);
     try {
-      const needsProgress = !(await isReportCacheReady(block.block_id, date, 'zip')).ready;
+      const needsProgress = options?.force
+        || !(await isReportCacheReady(block.block_id, date, 'zip')).ready;
       if (needsProgress) setProgress({ kind: 'zip', phase: 'photos', current: 0, total: 0 });
       const { uri } = await getOrGenerateZIP({
         projectName: project?.name ?? 'Obra',
@@ -155,7 +166,7 @@ export default function RelatoriosScreen() {
         blockId: block.block_id,
         date,
         onProgress: needsProgress ? handleZipProgress : undefined,
-      });
+      }, { force: options?.force });
       if (needsProgress) setProgress(null);
       await shareFile(uri);
       if (expanded === date) {
@@ -167,10 +178,29 @@ export default function RelatoriosScreen() {
     } finally { setBusy(null); setProgress(null); }
   };
 
-  const exportZIP = async (block: { block_id: number; block_name: string; photo_count: number }, date: string) => {
+  const exportZIP = async (
+    block: { block_id: number; block_name: string; photo_count: number },
+    date: string,
+    options?: { force?: boolean },
+  ) => {
     const ok = await confirmLargeZip(block.photo_count);
     if (!ok) return;
-    await doExportZIP(block, date);
+    await doExportZIP(block, date, options);
+  };
+
+  const confirmRegenerate = (
+    block: { block_id: number; block_name: string; photo_count: number },
+    date: string,
+  ) => {
+    Alert.alert(
+      'Gerar novamente',
+      'Recria o relatório com as configurações e a estrutura atuais. Pode demorar alguns minutos.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'PDF', onPress: () => exportPDF(block, date, { force: true }) },
+        { text: 'ZIP', onPress: () => exportZIP(block, date, { force: true }) },
+      ],
+    );
   };
 
   const isZipBusy = busy?.startsWith('zip-');
@@ -208,7 +238,20 @@ export default function RelatoriosScreen() {
                           <Text style={styles.blockName}>{b.block_name}</Text>
                           {b.cacheReady && <Text style={styles.cacheReady}>Relatório pronto</Text>}
                         </View>
-                        <Text style={styles.blockCount}>{b.photo_count} foto(s)</Text>
+                        <View style={styles.blockHeaderRight}>
+                          {b.cacheReady && (
+                            <TouchableOpacity
+                              style={styles.regenBtn}
+                              onPress={() => confirmRegenerate(b, item.date)}
+                              disabled={busy !== null}
+                              hitSlop={8}
+                              accessibilityLabel="Gerar relatório novamente"
+                            >
+                              <Feather name="refresh-cw" size={18} color={c.primary} />
+                            </TouchableOpacity>
+                          )}
+                          <Text style={styles.blockCount}>{b.photo_count} foto(s)</Text>
+                        </View>
                       </View>
                       <View style={styles.exportRow}>
                         <TouchableOpacity
@@ -275,8 +318,10 @@ const styles = StyleSheet.create({
   blockList: { marginTop: 8, gap: 8, paddingLeft: 12 },
   blockCard: { backgroundColor: c.card, borderRadius: colors.radius, padding: 14, borderWidth: 1, borderColor: c.border },
   blockHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  blockHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   blockName: { fontSize: 15, fontWeight: '600', color: c.foreground },
   cacheReady: { fontSize: 12, color: c.primary, marginTop: 2 },
+  regenBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: colors.radius, backgroundColor: c.background, borderWidth: 1, borderColor: c.border },
   blockCount: { fontSize: 13, color: c.mutedForeground },
   exportRow: { flexDirection: 'row', gap: 10 },
   exportBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: colors.radius, minHeight: 48 },

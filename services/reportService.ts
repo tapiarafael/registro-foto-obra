@@ -200,6 +200,15 @@ export async function generatePDF(opts: {
   return tempPath;
 }
 
+async function clearStaleZipArtifact(blockId: number, date: string): Promise<void> {
+  const report = await getGeneratedReport(blockId, date);
+  if (!report?.zip_path) return;
+  try {
+    const info = await FileSystem.getInfoAsync(report.zip_path);
+    if (info.exists) await FileSystem.deleteAsync(report.zip_path, { idempotent: true });
+  } catch {}
+}
+
 export async function getOrGeneratePDF(
   opts: ReportExportOpts,
   options?: { force?: boolean },
@@ -212,6 +221,8 @@ export async function getOrGeneratePDF(
     if (await isCacheEntryValid(report, opts.blockId, opts.date, report?.pdf_path)) {
       return { uri: report!.pdf_path!, fromCache: true };
     }
+  } else {
+    await clearStaleZipArtifact(opts.blockId, opts.date);
   }
 
   const tempUri = await generatePDF(opts);
@@ -228,6 +239,7 @@ export async function getOrGeneratePDF(
     photoCount,
     configHash,
     pdfPath,
+    zipPath: options?.force ? null : undefined,
   });
 
   return { uri: pdfPath, fromCache: false };
