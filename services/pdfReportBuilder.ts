@@ -219,6 +219,27 @@ class PdfLayout {
     });
   }
 
+  drawQuadraHeading(label: string): void {
+    const text = this.showSectionLabels ? `Quadra: ${label}` : label;
+    const size = 16;
+    const gap = 20;
+    const lineH = size + 6;
+
+    this.ensureSpace(gap + lineH + 4);
+    this.advance(gap);
+
+    const y = this.topY() - size;
+    this.page.drawText(text, {
+      x: this.margin,
+      y,
+      size,
+      font: this.fontBold,
+      color: this.primaryColor,
+    });
+    this.drawLine(size + 4, this.primaryColor, 2);
+    this.advance(lineH + 4);
+  }
+
   drawHeading(field: GroupField, label: string, level: number, isFirstService: boolean): void {
     const text = this.showSectionLabels ? `${FIELD_LABELS[field]}: ${label}` : label;
     const isService = field === 'service';
@@ -662,6 +683,7 @@ export async function buildReportPdf(opts: {
   if (opts.photos.length === 0) {
     layout.drawEmptyState();
   } else {
+    layout.drawQuadraHeading(opts.blockName);
     const photoCounter = { current: 0 };
     await renderGroupedPhotos(
       layout,
@@ -673,6 +695,7 @@ export async function buildReportPdf(opts: {
       opts.onProgress,
       opts.photos.length,
       photoCounter,
+      1,
     );
   }
 
