@@ -611,14 +611,14 @@ async function loadLogoImage(pdfDoc: PDFDocument, logoPath: string | null | unde
     const embedded = await embedLogoFromBase64(pdfDoc, b64);
     if (embedded) return embedded;
 
-    // HEIC / WebP / other formats — normalize to JPEG
+    // HEIC / WebP / other formats — normalize to PNG to preserve transparency
     const converted = await ImageManipulator.manipulateAsync(
       logoPath,
       [],
-      { format: ImageManipulator.SaveFormat.JPEG, compress: 0.9, base64: true },
+      { format: ImageManipulator.SaveFormat.PNG, base64: true },
     );
     if (converted.base64) {
-      return await pdfDoc.embedJpg(converted.base64);
+      return await pdfDoc.embedPng(converted.base64);
     }
     return null;
   } catch {

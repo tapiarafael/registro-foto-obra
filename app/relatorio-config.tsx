@@ -145,11 +145,20 @@ export default function RelatorioConfig() {
         allowsEditing: true,
       });
       if (!result.canceled && result.assets[0]) {
-        const dest = FileSystem.documentDirectory + 'report_logo.jpg';
+        const asset = result.assets[0];
+        const isJpeg = asset.mimeType === 'image/jpeg' || asset.mimeType === 'image/jpg';
+        const format = isJpeg ? ImageManipulator.SaveFormat.JPEG : ImageManipulator.SaveFormat.PNG;
+        const ext = isJpeg ? 'jpg' : 'png';
+        const dest = FileSystem.documentDirectory + `report_logo.${ext}`;
+
+        if (logoPath) {
+          try { await FileSystem.deleteAsync(logoPath, { idempotent: true }); } catch {}
+        }
+
         const normalized = await ImageManipulator.manipulateAsync(
-          result.assets[0].uri,
+          asset.uri,
           [],
-          { format: ImageManipulator.SaveFormat.JPEG, compress: 0.9 },
+          isJpeg ? { format, compress: 0.9 } : { format },
         );
         await FileSystem.copyAsync({ from: normalized.uri, to: dest });
         setLogoPath(dest);
