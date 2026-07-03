@@ -29,6 +29,12 @@ async function loadFontBytes(moduleId: number): Promise<Uint8Array> {
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
+  const isTtf =
+    (bytes[0] === 0x00 && bytes[1] === 0x01 && bytes[2] === 0x00 && bytes[3] === 0x00) ||
+    (bytes[0] === 0x4f && bytes[1] === 0x54 && bytes[2] === 0x54 && bytes[3] === 0x4f);
+  if (!isTtf) {
+    throw new Error(`Invalid font asset at ${uri}: expected TTF/OTF data`);
+  }
   return bytes;
 }
 
