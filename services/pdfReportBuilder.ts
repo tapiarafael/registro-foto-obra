@@ -153,6 +153,88 @@ function buildCaptionLines(photo: PhotoWithHierarchy, wmConfig: WatermarkConfig)
   return lines;
 }
 
+function groupPhotosByField(
+  photos: PhotoWithHierarchy[],
+  field: GroupField,
+): { groupMap: Map<string, PhotoWithHierarchy[]>; sortedKeys: string[] } {
+  const groupMap = new Map<string, PhotoWithHierarchy[]>();
+  const sortMap = new Map<string, number>();
+  for (const p of photos) {
+    const key = getFieldValue(p, field);
+    const sort = getFieldSort(p, field);
+    if (!groupMap.has(key)) {
+      groupMap.set(key, []);
+      sortMap.set(key, sort);
+    }
+    groupMap.get(key)!.push(p);
+  }
+  const sortedKeys = Array.from(groupMap.keys()).sort(
+    (a, b) => (sortMap.get(a) ?? 0) - (sortMap.get(b) ?? 0),
+  );
+  return { groupMap, sortedKeys };
+}
+
+function measureHeadingHeight(field: GroupField, level: number, isFirstService: boolean): number {
+  if (field === 'service') {
+    if (!isFirstService) {
+      return 4 + 12 + 22 + 8;
+    }
+    return 8 + 22 + 8;
+  }
+  const sizes = [16, 14, 12, 11];
+  const gaps = [20, 14, 10, 8];
+  const size = sizes[Math.min(level, 3)];
+  const gap = gaps[Math.min(level, 3)];
+  const lineH = size + 6;
+  return gap + lineH + 4;
+}
+
+function measureQuadraHeadingHeight(): number {
+  const size = 16;
+  const gap = 20;
+  const lineH = size + 6;
+  return gap + lineH + 4;
+}
+
+function measureFirstPhotoRowHeight(
+  photos: PhotoWithHierarchy[],
+  wmConfig: WatermarkConfig,
+  colWidth: number,
+  font: PDFFont,
+  fontBold: PDFFont,
+): number {
+  const row = photos.slice(0, 2);
+  if (row.length === 0) return 0;
+  const heights = row.map(p => measureCardHeight(p, wmConfig, colWidth, font, fontBold));
+  return Math.max(...heights) + ROW_GAP;
+}
+
+function measureMinFollowingHeight(
+  photos: PhotoWithHierarchy[],
+  fields: GroupField[],
+  depth: number,
+  wmConfig: WatermarkConfig,
+  colWidth: number,
+  font: PDFFont,
+  fontBold: PDFFont,
+): number {
+  if (photos.length === 0) return 0;
+
+  if (fields.length === 0) {
+    return measureFirstPhotoRowHeight(photos, wmConfig, colWidth, font, fontBold);
+  }
+
+  const [field, ...rest] = fields;
+  const { groupMap, sortedKeys } = groupPhotosByField(photos, field);
+  if (sortedKeys.length === 0) return 0;
+
+  const firstGroup = groupMap.get(sortedKeys[0])!;
+  const level = Math.min(depth, 3);
+
+  return measureHeadingHeight(field, level, true) +
+    measureMinFollowingHeight(firstGroup, rest, depth + 1, wmConfig, colWidth, font, fontBold);
+}
+
 function wrapText(text: string, maxWidth: number, font: PDFFont, size: number): string[] {
   const words = text.split(/\s+/);
   const lines: string[] = [];
@@ -192,6 +274,18 @@ class PdfLayout {
 
   get currentPage(): PDFPage {
     return this.page;
+  }
+
+  get layoutFont(): PDFFont {
+    return this.font;
+  }
+
+  get layoutFontBold(): PDFFont {
+    return this.fontBold;
+  }
+
+  get layoutColWidth(): number {
+    return this.colWidth;
   }
 
   private topY(): number {
@@ -555,26 +649,27 @@ async function renderGroupedPhotos(
   }
 
   const [field, ...rest] = fields;
-  const groupMap = new Map<string, PhotoWithHierarchy[]>();
-  const sortMap = new Map<string, number>();
-  for (const p of photos) {
-    const key = getFieldValue(p, field);
-    const sort = getFieldSort(p, field);
-    if (!groupMap.has(key)) {
-      groupMap.set(key, []);
-      sortMap.set(key, sort);
-    }
-    groupMap.get(key)!.push(p);
-  }
-
-  const sortedKeys = Array.from(groupMap.keys()).sort(
-    (a, b) => (sortMap.get(a) ?? 0) - (sortMap.get(b) ?? 0),
-  );
+  const { groupMap, sortedKeys } = groupPhotosByField(photos, field);
 
   const level = Math.min(depth, 3);
+  const colWidth = layout.layoutColWidth;
+  const font = layout.layoutFont;
+  const fontBold = layout.layoutFontBold;
 
   for (let idx = 0; idx < sortedKeys.length; idx++) {
     const key = sortedKeys[idx];
+    const groupPhotos = groupMap.get(key)!;
+    const headingH = measureHeadingHeight(field, level, idx === 0);
+    const followingH = measureMinFollowingHeight(
+      groupPhotos,
+      rest,
+      depth + 1,
+      wmConfig,
+      colWidth,
+      font,
+      fontBold,
+    );
+    layout.ensureSpace(headingH + followingH);
     layout.drawHeading(field, key, level, idx === 0);
     await renderGroupedPhotos(
       layout,
@@ -683,6 +778,18 @@ export async function buildReportPdf(opts: {
   if (opts.photos.length === 0) {
     layout.drawEmptyState();
   } else {
+    const colWidth = (PAGE_WIDTH - MARGIN * 2 - COL_GAP) / 2;
+    const quadraH = measureQuadraHeadingHeight();
+    const followingH = measureMinFollowingHeight(
+      opts.photos,
+      opts.groupingFields,
+      1,
+      opts.wmConfig,
+      colWidth,
+      font,
+      fontBold,
+    );
+    layout.ensureSpace(quadraH + followingH);
     layout.drawQuadraHeading(opts.blockName);
     const photoCounter = { current: 0 };
     await renderGroupedPhotos(
