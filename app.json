@@ -33,7 +33,9 @@
       [
         "expo-font",
         {
-          "fonts": ["./assets/fonts/Feather.ttf"]
+          "fonts": [
+            "./assets/fonts/Feather.ttf"
+          ]
         }
       ],
       [
@@ -49,7 +51,8 @@
           "photosPermission": "O aplicativo precisa acessar suas fotos para importar imagens da obra."
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": false,

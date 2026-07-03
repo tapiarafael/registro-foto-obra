@@ -6,12 +6,12 @@ import {
   PDFFont,
   PDFImage,
   RGB,
-  StandardFonts,
   rgb,
 } from 'pdf-lib';
 import type { PhotoWithHierarchy, WatermarkConfig } from '@/db/database';
-import { formatDate, formatDateTime, formatDatePart, formatTime } from '@/utils/datetime';
+import { formatDate, formatDateTime, formatDatePart, formatTime, formatWeekNumber } from '@/utils/datetime';
 import { getPhotoUri, getThumbnailUri } from './photoService';
+import { loadReportFonts } from './reportFonts';
 
 export type ImageQuality = 'fast' | 'medium' | 'high';
 export type GroupField = 'building' | 'floor' | 'unit' | 'service';
@@ -175,25 +175,26 @@ function groupPhotosByField(
 }
 
 function measureHeadingHeight(field: GroupField, level: number, isFirstService: boolean): number {
-  if (field === 'service') {
-    if (!isFirstService) {
-      return 4 + 12 + 22 + 8;
-    }
-    return 8 + 22 + 8;
+  if (field === 'building') {
+    return 10 + 20 + 8;
   }
-  const sizes = [16, 14, 12, 11];
-  const gaps = [20, 14, 10, 8];
+  if (field === 'service') {
+    const gap = isFirstService ? 8 : 14;
+    return gap + 12 + 6 + 4;
+  }
+  const sizes = [14, 12, 12, 12];
+  const gaps = [10, 8, 8, 8];
   const size = sizes[Math.min(level, 3)];
   const gap = gaps[Math.min(level, 3)];
   const lineH = size + 6;
   return gap + lineH + 4;
 }
 
-function measureQuadraHeadingHeight(): number {
-  const size = 16;
-  const gap = 20;
+function measureContextBlockHeight(): number {
+  const size = 14;
   const lineH = size + 6;
-  return gap + lineH + 4;
+  const gap = 8;
+  return gap + lineH + gap + lineH + gap + lineH + 16;
 }
 
 function measureFirstPhotoRowHeight(
@@ -313,43 +314,45 @@ class PdfLayout {
     });
   }
 
-  drawQuadraHeading(label: string): void {
-    const text = this.showSectionLabels ? `Quadra: ${label}` : label;
-    const size = 16;
-    const gap = 20;
+  drawContextBlock(blockName: string, date: string): void {
+    const size = 14;
     const lineH = size + 6;
+    const gap = 8;
+    const blockH = measureContextBlockHeight();
 
-    this.ensureSpace(gap + lineH + 4);
+    this.ensureSpace(blockH);
     this.advance(gap);
 
-    const y = this.topY() - size;
-    this.page.drawText(text, {
-      x: this.margin,
-      y,
-      size,
-      font: this.fontBold,
-      color: this.primaryColor,
-    });
-    this.drawLine(size + 4, this.primaryColor, 2);
-    this.advance(lineH + 4);
+    const lines = [
+      { text: this.showSectionLabels ? `Quadra: ${blockName}` : blockName, color: this.primaryColor },
+      { text: formatWeekNumber(date), color: TEXT_DARK },
+      { text: formatDate(date), color: TEXT_DARK },
+    ];
+
+    for (const line of lines) {
+      const w = this.fontBold.widthOfTextAtSize(line.text, size);
+      const y = this.topY() - size;
+      this.page.drawText(line.text, {
+        x: (this.pageWidth - w) / 2,
+        y,
+        size,
+        font: this.fontBold,
+        color: line.color,
+      });
+      this.advance(lineH + gap);
+    }
+    this.advance(8);
   }
 
   drawHeading(field: GroupField, label: string, level: number, isFirstService: boolean): void {
     const text = this.showSectionLabels ? `${FIELD_LABELS[field]}: ${label}` : label;
-    const isService = field === 'service';
 
-    if (isService) {
-      const gap = isFirstService ? 8 : 20;
-      const boxH = 22;
-      const blockH = gap + boxH + 8;
-      this.ensureSpace(blockH);
-      if (!isFirstService) {
-        this.advance(4);
-        this.drawLine(0, CARD_BORDER, 2);
-        this.advance(12);
-      } else {
-        this.advance(gap);
-      }
+    if (field === 'building') {
+      const gap = 10;
+      const boxH = 20;
+      const size = 14;
+      this.ensureSpace(gap + boxH + 8);
+      this.advance(gap);
       const boxBottom = this.pageHeight - this.margin - this.cursorY - boxH;
       this.page.drawRectangle({
         x: this.margin,
@@ -358,17 +361,10 @@ class PdfLayout {
         height: boxH,
         color: rgb(0.94, 0.96, 0.97),
       });
-      this.page.drawRectangle({
-        x: this.margin,
-        y: boxBottom,
-        width: 4,
-        height: boxH,
-        color: this.primaryColor,
-      });
       this.page.drawText(text, {
-        x: this.margin + 10,
-        y: boxBottom + 5,
-        size: 13,
+        x: this.margin + 8,
+        y: boxBottom + 4,
+        size,
         font: this.fontBold,
         color: this.primaryColor,
       });
@@ -376,8 +372,26 @@ class PdfLayout {
       return;
     }
 
-    const sizes = [16, 14, 12, 11];
-    const gaps = [20, 14, 10, 8];
+    if (field === 'service') {
+      const gap = isFirstService ? 8 : 14;
+      const size = 12;
+      const lineH = size + 6;
+      this.ensureSpace(gap + lineH + 4);
+      this.advance(gap);
+      const y = this.topY() - size;
+      this.page.drawText(text, {
+        x: this.margin,
+        y,
+        size,
+        font: this.fontBold,
+        color: rgb(0.47, 0.47, 0.47),
+      });
+      this.advance(lineH + 4);
+      return;
+    }
+
+    const sizes = [14, 12, 12, 12];
+    const gaps = [10, 8, 8, 8];
     const size = sizes[Math.min(level, 3)];
     const gap = gaps[Math.min(level, 3)];
     const lineH = size + 6;
@@ -386,31 +400,21 @@ class PdfLayout {
     this.advance(gap);
 
     const y = this.topY() - size;
-    const colors = [this.primaryColor, TEXT_DARK, rgb(0.33, 0.33, 0.33), rgb(0.47, 0.47, 0.47)];
-    const useFont = level === 0 ? this.fontBold : this.font;
+    const colors = [this.primaryColor, this.primaryColor, TEXT_DARK, TEXT_DARK];
 
     this.page.drawText(text, {
       x: this.margin,
       y,
       size,
-      font: useFont,
+      font: this.fontBold,
       color: colors[Math.min(level, 3)],
     });
-
-    if (level === 0) {
-      this.drawLine(size + 4, this.primaryColor, 2);
-    } else if (level === 1) {
-      this.drawLine(size + 2, rgb(0.87, 0.87, 0.87), 1);
-    }
 
     this.advance(lineH + 4);
   }
 
   drawHeader(opts: {
     projectName: string;
-    blockName: string;
-    date: string;
-    photoCount: number;
     responsibleEngineer?: string | null;
     logoImage?: PDFImage | null;
   }): void {
@@ -433,8 +437,8 @@ class PdfLayout {
       headerHeight = Math.max(headerHeight, drawH + 6);
     }
 
-    const title = 'Registro Fotográfico de Obra';
-    const titleSize = 20;
+    const title = 'RELATÓRIO FOTOGRÁFICO';
+    const titleSize = 18;
     let y = this.pageHeight - this.margin - titleSize;
     this.page.drawText(title, {
       x: this.margin,
@@ -445,32 +449,25 @@ class PdfLayout {
     });
     headerHeight = Math.max(headerHeight, titleSize + 4);
 
-    y -= 22;
+    y -= 18;
     this.page.drawText(opts.projectName, {
       x: this.margin,
       y,
-      size: 14,
-      font: this.fontBold,
+      size: 12,
+      font: this.font,
       color: TEXT_DARK,
     });
-    headerHeight = Math.max(headerHeight, titleSize + 22);
+    headerHeight = Math.max(headerHeight, titleSize + 18);
 
-    const metaLines = [
-      `Quadra: ${opts.blockName}`,
-      `Data: ${formatDate(opts.date)}`,
-      `Total de fotos: ${opts.photoCount}`,
-      ...(opts.responsibleEngineer ? [`Responsável: ${opts.responsibleEngineer}`] : []),
-    ];
-    y -= 16;
-    for (const line of metaLines) {
-      this.page.drawText(line, {
+    if (opts.responsibleEngineer) {
+      y -= 16;
+      this.page.drawText(`Responsável: ${opts.responsibleEngineer}`, {
         x: this.margin,
         y,
-        size: 11,
+        size: 12,
         font: this.font,
-        color: MUTED,
+        color: TEXT_DARK,
       });
-      y -= 14;
       headerHeight = Math.max(headerHeight, this.pageHeight - this.margin - y);
     }
 
@@ -758,8 +755,7 @@ export async function buildReportPdf(opts: {
   onProgress?: (current: number, total: number) => void;
 }): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const { font, fontBold } = await loadReportFonts(pdfDoc);
   const primaryRgb = hexToRgb(opts.primaryColor);
 
   const logoImage = await loadLogoImage(pdfDoc, opts.logoPath);
@@ -768,9 +764,6 @@ export async function buildReportPdf(opts: {
 
   layout.drawHeader({
     projectName: opts.projectName,
-    blockName: opts.blockName,
-    date: opts.date,
-    photoCount: opts.photos.length,
     responsibleEngineer: opts.responsibleEngineer,
     logoImage,
   });
@@ -779,7 +772,7 @@ export async function buildReportPdf(opts: {
     layout.drawEmptyState();
   } else {
     const colWidth = (PAGE_WIDTH - MARGIN * 2 - COL_GAP) / 2;
-    const quadraH = measureQuadraHeadingHeight();
+    const contextH = measureContextBlockHeight();
     const followingH = measureMinFollowingHeight(
       opts.photos,
       opts.groupingFields,
@@ -789,8 +782,8 @@ export async function buildReportPdf(opts: {
       font,
       fontBold,
     );
-    layout.ensureSpace(quadraH + followingH);
-    layout.drawQuadraHeading(opts.blockName);
+    layout.ensureSpace(contextH + followingH);
+    layout.drawContextBlock(opts.blockName, opts.date);
     const photoCounter = { current: 0 };
     await renderGroupedPhotos(
       layout,
