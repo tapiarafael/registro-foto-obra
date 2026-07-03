@@ -1,5 +1,6 @@
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
+import fontkit from '@pdf-lib/fontkit';
 import type { PDFDocument, PDFFont } from 'pdf-lib';
 
 async function loadFontBytes(moduleId: number): Promise<Uint8Array> {
@@ -18,11 +19,12 @@ async function loadFontBytes(moduleId: number): Promise<Uint8Array> {
 }
 
 export async function loadReportFonts(pdfDoc: PDFDocument): Promise<{ font: PDFFont; fontBold: PDFFont }> {
+  pdfDoc.registerFontkit(fontkit);
   const [regularBytes, boldBytes] = await Promise.all([
     loadFontBytes(require('@/assets/fonts/ArchivoNarrow-Regular.ttf')),
     loadFontBytes(require('@/assets/fonts/ArchivoNarrow-Bold.ttf')),
   ]);
-  const font = await pdfDoc.embedFont(regularBytes);
-  const fontBold = await pdfDoc.embedFont(boldBytes);
+  const font = await pdfDoc.embedFont(regularBytes, { subset: true });
+  const fontBold = await pdfDoc.embedFont(boldBytes, { subset: true });
   return { font, fontBold };
 }
