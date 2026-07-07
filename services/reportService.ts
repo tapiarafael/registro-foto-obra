@@ -18,10 +18,9 @@ import {
   type ImageQuality,
 } from './pdfReportBuilder';
 import { buildReportZip } from './zipReportBuilder';
+import { buildReportBaseName } from '@/utils/reportNaming';
 
 const REPORTS_DIR = FileSystem.documentDirectory + 'reports/';
-const PDF_FILENAME = 'relatorio.pdf';
-const ZIP_FILENAME = 'export.zip';
 
 function sanitize(s: string): string {
   return s.replace(/[^a-zA-Z0-9\u00C0-\u00FF _-]/g, '').trim().replace(/\s+/g, '_');
@@ -214,7 +213,7 @@ export async function getOrGeneratePDF(
   options?: { force?: boolean },
 ): Promise<ReportExportResult> {
   const reportDir = getReportDir(opts.date, opts.projectName, opts.blockName);
-  const pdfPath = reportDir + PDF_FILENAME;
+  const pdfPath = reportDir + buildReportBaseName(opts.blockName, opts.date) + '.pdf';
 
   if (!options?.force) {
     const report = await getGeneratedReport(opts.blockId, opts.date);
@@ -265,7 +264,7 @@ export async function getOrGenerateZIP(
   options?: { force?: boolean },
 ): Promise<ReportExportResult> {
   const reportDir = getReportDir(opts.date, opts.projectName, opts.blockName);
-  const zipPath = reportDir + ZIP_FILENAME;
+  const zipPath = reportDir + buildReportBaseName(opts.blockName, opts.date) + '.zip';
 
   if (!options?.force) {
     const report = await getGeneratedReport(opts.blockId, opts.date);

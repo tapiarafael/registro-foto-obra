@@ -7,9 +7,8 @@ import {
   type WatermarkConfig,
 } from '@/db/database';
 import { formatDate, formatDateTime, parseStoredTimestamp } from '@/utils/datetime';
+import { buildReportBaseName } from '@/utils/reportNaming';
 import { getPhotoUri } from './photoService';
-
-const PDF_FILENAME = 'relatorio.pdf';
 
 function sanitize(s: string): string {
   return s.replace(/[^a-zA-Z0-9\u00C0-\u00FF _-]/g, '').trim().replace(/\s+/g, '_');
@@ -138,7 +137,7 @@ export async function buildReportZip(opts: {
     opts.onProgress?.(photos.length + 1, totalSteps);
 
     const pdfBytes = await new File(opts.pdfPath).bytes();
-    addStoredEntry(zip, `${folderName}/${PDF_FILENAME}`, pdfBytes);
+    addStoredEntry(zip, `${folderName}/${buildReportBaseName(opts.blockName, opts.date)}.pdf`, pdfBytes);
     throwIfWriteFailed();
     opts.onProgress?.(photos.length + 2, totalSteps);
 
