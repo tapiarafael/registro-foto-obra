@@ -58,6 +58,7 @@ export default function CrudList<T extends CrudItem>({
   const [editMode, setEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [listData, setListData] = useState(items);
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     setListData(items);
@@ -68,6 +69,7 @@ export default function CrudList<T extends CrudItem>({
 
   const exitEditMode = useCallback(() => {
     setEditMode(false);
+    setIsDragging(false);
     setSelectedIds(new Set());
     setListData(items);
   }, [items]);
@@ -296,11 +298,14 @@ export default function CrudList<T extends CrudItem>({
           <EmptyState icon={icon} title={emptyTitle} message={emptyMessage} actionLabel={addLabel} onAction={openCreate} />
         ) : canReorder ? (
           <DraggableFlatList
+            style={styles.flex}
             data={listData}
             keyExtractor={(i) => String(i.id)}
             extraData={listData.length}
             contentContainerStyle={styles.list}
+            onDragBegin={() => setIsDragging(true)}
             onDragEnd={({ data }) => {
+              setIsDragging(false);
               setListData(data);
               void persistReorder(data);
             }}
@@ -316,7 +321,7 @@ export default function CrudList<T extends CrudItem>({
           />
         )}
 
-        {(editMode || showFabOutsideEditMode) && listData.length > 0 && (
+        {!isDragging && (editMode || showFabOutsideEditMode) && listData.length > 0 && (
           <TouchableOpacity
             style={[styles.fab, editMode && canBatchDelete && styles.fabAboveBatch]}
             onPress={openCreate}
@@ -326,7 +331,7 @@ export default function CrudList<T extends CrudItem>({
           </TouchableOpacity>
         )}
 
-        {editMode && canBatchDelete ? (
+        {!isDragging && editMode && canBatchDelete ? (
           <View style={styles.batchBar}>
             <TouchableOpacity
               style={[styles.batchDeleteBtn, selectedIds.size === 0 && styles.disabled]}
