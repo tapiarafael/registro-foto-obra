@@ -81,6 +81,7 @@ export default function ServicesScreen({ mode }: Props) {
         : undefined}
       structureKind="service"
       structureScopeId={project?.id}
+      showFabOutsideEditMode
       itemDone={mode === 'capture' ? (s) => doneIds.has(s.id) : undefined}
       onItemsReordered={reload}
       onPressItem={mode === 'capture' ? (s) => { void selectCapture(s); } : undefined}

@@ -40,12 +40,14 @@ interface Props<T extends CrudItem> {
   structureKind?: StructureKind;
   structureScopeId?: number;
   onItemsReordered?: () => void | Promise<void>;
+  showFabOutsideEditMode?: boolean;
 }
 
 export default function CrudList<T extends CrudItem>({
   items, icon = 'box', emptyTitle, emptyMessage, addLabel,
   subtitleFor, onPressItem, onCreate, onRename, onDelete, onBatchDelete,
   onDuplicate, headerNote, header, itemDone, structureKind, structureScopeId, onItemsReordered,
+  showFabOutsideEditMode,
 }: Props<T>) {
   const c = colors.light;
   const [modalVisible, setModalVisible] = useState(false);
@@ -314,9 +316,9 @@ export default function CrudList<T extends CrudItem>({
           />
         )}
 
-        {editMode && listData.length > 0 && (
+        {(editMode || showFabOutsideEditMode) && listData.length > 0 && (
           <TouchableOpacity
-            style={[styles.fab, canBatchDelete && styles.fabAboveBatch]}
+            style={[styles.fab, editMode && canBatchDelete && styles.fabAboveBatch]}
             onPress={openCreate}
             activeOpacity={0.85}
           >
