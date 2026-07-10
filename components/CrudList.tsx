@@ -6,7 +6,6 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import colors from '@/constants/colors';
 import HierarchyCard from '@/components/HierarchyCard';
 import EmptyState from '@/components/EmptyState';
@@ -277,7 +276,7 @@ export default function CrudList<T extends CrudItem>({
     : headerNote ?? null;
 
   return (
-    <GestureHandlerRootView style={styles.flex}>
+    <View style={styles.flex}>
       <SafeAreaView style={styles.container} edges={['bottom']}>
         {header}
         {noteText ? <Text style={styles.note}>{noteText}</Text> : null}
@@ -295,32 +294,36 @@ export default function CrudList<T extends CrudItem>({
           </View>
         ) : null}
 
-        {listData.length === 0 ? (
-          <EmptyState icon={icon} title={emptyTitle} message={emptyMessage} actionLabel={addLabel} onAction={openCreate} />
-        ) : supportsReorder ? (
-          <DraggableFlatList
-            style={styles.flex}
-            data={listData}
-            keyExtractor={(i) => String(i.id)}
-            extraData={{ editMode, selectedIds, listLen: listData.length }}
-            contentContainerStyle={styles.list}
-            onDragBegin={() => setIsDragging(true)}
-            onDragEnd={({ data }) => {
-              setIsDragging(false);
-              setListData(data);
-              void persistReorder(data);
-            }}
-            renderItem={renderDraggableItem}
-          />
-        ) : (
-          <FlatList
-            data={listData}
-            keyExtractor={(i) => String(i.id)}
-            extraData={{ editMode, selectedIds, listLen: listData.length }}
-            contentContainerStyle={styles.list}
-            renderItem={({ item }) => renderRowContent(item)}
-          />
-        )}
+        <View style={styles.flex}>
+          {listData.length === 0 ? (
+            <EmptyState icon={icon} title={emptyTitle} message={emptyMessage} actionLabel={addLabel} onAction={openCreate} />
+          ) : canReorder ? (
+            <DraggableFlatList
+              key="edit-list"
+              containerStyle={styles.flex}
+              style={styles.flex}
+              data={listData}
+              keyExtractor={(i) => String(i.id)}
+              extraData={{ editMode, selectedIds, listLen: listData.length }}
+              contentContainerStyle={styles.list}
+              onDragBegin={() => setIsDragging(true)}
+              onDragEnd={({ data }) => {
+                setIsDragging(false);
+                setListData(data);
+                void persistReorder(data);
+              }}
+              renderItem={renderDraggableItem}
+            />
+          ) : (
+            <FlatList
+              data={listData}
+              keyExtractor={(i) => String(i.id)}
+              extraData={{ editMode, selectedIds, listLen: listData.length }}
+              contentContainerStyle={styles.list}
+              renderItem={({ item }) => renderRowContent(item)}
+            />
+          )}
+        </View>
 
         {!isDragging && (editMode || showFabOutsideEditMode) && listData.length > 0 && (
           <TouchableOpacity
@@ -372,7 +375,7 @@ export default function CrudList<T extends CrudItem>({
           </KeyboardAvoidingView>
         </Modal>
       </SafeAreaView>
-    </GestureHandlerRootView>
+    </View>
   );
 }
 
