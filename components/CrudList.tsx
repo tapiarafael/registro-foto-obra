@@ -64,7 +64,8 @@ export default function CrudList<T extends CrudItem>({
     setListData(items);
   }, [items]);
 
-  const canReorder = editMode && structureKind != null && structureScopeId != null;
+  const supportsReorder = structureKind != null && structureScopeId != null;
+  const canReorder = editMode && supportsReorder;
   const canBatchDelete = editMode && !!onBatchDelete;
 
   const exitEditMode = useCallback(() => {
@@ -296,12 +297,12 @@ export default function CrudList<T extends CrudItem>({
 
         {listData.length === 0 ? (
           <EmptyState icon={icon} title={emptyTitle} message={emptyMessage} actionLabel={addLabel} onAction={openCreate} />
-        ) : canReorder ? (
+        ) : supportsReorder ? (
           <DraggableFlatList
             style={styles.flex}
             data={listData}
             keyExtractor={(i) => String(i.id)}
-            extraData={listData.length}
+            extraData={{ editMode, selectedIds, listLen: listData.length }}
             contentContainerStyle={styles.list}
             onDragBegin={() => setIsDragging(true)}
             onDragEnd={({ data }) => {
@@ -315,7 +316,7 @@ export default function CrudList<T extends CrudItem>({
           <FlatList
             data={listData}
             keyExtractor={(i) => String(i.id)}
-            extraData={listData.length}
+            extraData={{ editMode, selectedIds, listLen: listData.length }}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => renderRowContent(item)}
           />
