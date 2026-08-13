@@ -4,7 +4,11 @@
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
 
-if [ -z "${JAVA_HOME:-}" ]; then
+# Gradle 8.14 (Expo SDK 54) cannot use Android Studio's Java 25 JBR.
+JDK17_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+if [ -d "$JDK17_HOME" ]; then
+  export JAVA_HOME="$JDK17_HOME"
+elif [ -z "${JAVA_HOME:-}" ]; then
   if [ -d "/Applications/Android Studio.app/Contents/jbr/Contents/Home" ]; then
     export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
   elif command -v /usr/libexec/java_home >/dev/null 2>&1; then
