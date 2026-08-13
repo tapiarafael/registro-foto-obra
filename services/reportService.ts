@@ -18,17 +18,9 @@ import {
   type ImageQuality,
 } from './pdfReportBuilder';
 import { buildReportZip } from './zipReportBuilder';
-import { buildReportBaseName } from '@/utils/reportNaming';
+import { buildReportBaseName, buildReportFolderName } from '@/utils/reportNaming';
 
 const REPORTS_DIR = FileSystem.documentDirectory + 'reports/';
-
-function sanitize(s: string): string {
-  return s.replace(/[^a-zA-Z0-9\u00C0-\u00FF _-]/g, '').trim().replace(/\s+/g, '_');
-}
-
-export function buildReportFolderName(date: string, projectName: string, blockName: string): string {
-  return `${date}_${sanitize(projectName)}_${sanitize(blockName)}`;
-}
 
 export function getReportDir(date: string, projectName: string, blockName: string): string {
   return `${REPORTS_DIR}${buildReportFolderName(date, projectName, blockName)}/`;

@@ -4,23 +4,28 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import {
   getUnitsLite, getUnitsForDate, createUnit, updateUnit, deleteUnit, deleteUnits,
-  cloneUnit, type Unit,
+  cloneUnit, getServices, getServicesForDateLocation, type Unit, type Service,
 } from '@/db/database';
 import { todayDateString } from '@/utils/datetime';
+import { openCaptureCamera } from '@/utils/openCaptureCamera';
+import { useShowServices } from '@/hooks/useShowServices';
 import CrudList from '@/components/CrudList';
-import BreadcrumbBar from '@/components/BreadcrumbBar';
+import CaptureListHeader from '@/components/CaptureListHeader';
 import CloneNameModal from '@/components/structure/CloneNameModal';
 
 type Props = { mode: 'capture' | 'manage' };
 
 export default function UnitsScreen({ mode }: Props) {
   const router = useRouter();
-  const { captureNav, setCaptureNav } = useApp();
+  const { project, captureNav, setCaptureNav, setPhotoGroupId } = useApp();
+  const { showServices, setShowServicesPref } = useShowServices();
   const { floorId } = useLocalSearchParams<{ floorId: string; floorName: string }>();
   const manageFloorId = Number(floorId);
   const scopeId = mode === 'capture' ? captureNav.floor?.id : manageFloorId;
   const [items, setItems] = useState<Unit[]>([]);
   const [doneIds, setDoneIds] = useState<Set<number>>(new Set());
+  const [services, setServices] = useState<Service[]>([]);
+  const [doneServiceIds, setDoneServiceIds] = useState<Set<number>>(new Set());
   const [cloneTarget, setCloneTarget] = useState<Unit | null>(null);
   const [cloneName, setCloneName] = useState('');
   const [cloneVisible, setCloneVisible] = useState(false);
@@ -32,8 +37,15 @@ export default function UnitsScreen({ mode }: Props) {
     if (mode === 'capture') {
       const done = await getUnitsForDate(scopeId, todayDateString());
       setDoneIds(new Set(done.map((u) => u.id)));
+      if (project && showServices && captureNav.floor) {
+        setServices(await getServices(project.id));
+        const svcDone = await getServicesForDateLocation('floor', captureNav.floor.id, todayDateString());
+        setDoneServiceIds(new Set(svcDone.map((s) => s.id)));
+      } else {
+        setServices([]);
+      }
     }
-  }, [scopeId, mode]);
+  }, [scopeId, mode, project, showServices, captureNav.floor]);
 
   useFocusEffect(useCallback(() => { reload(); }, [reload]));
 
@@ -60,8 +72,47 @@ export default function UnitsScreen({ mode }: Props) {
   };
 
   const selectCapture = (unit: Unit) => {
-    setCaptureNav({ unit, service: null, photoGroupId: null });
-    router.push('/registrar/servicos');
+    if (showServices) {
+      setCaptureNav({ unit, service: null, photoGroupId: null });
+      router.push('/registrar/servicos');
+      return;
+    }
+    if (!captureNav.sessionId) return;
+    void openCaptureCamera({
+      sessionId: captureNav.sessionId,
+      location: { kind: 'unit', id: unit.id },
+      service: null,
+      navPatch: { unit },
+      setCaptureNav,
+      setPhotoGroupId,
+      router,
+    });
+  };
+
+  const openHere = () => {
+    if (!captureNav.sessionId || !captureNav.floor) return;
+    void openCaptureCamera({
+      sessionId: captureNav.sessionId,
+      location: { kind: 'floor', id: captureNav.floor.id },
+      service: null,
+      navPatch: { unit: null },
+      setCaptureNav,
+      setPhotoGroupId,
+      router,
+    });
+  };
+
+  const openService = (service: Service) => {
+    if (!captureNav.sessionId || !captureNav.floor) return;
+    void openCaptureCamera({
+      sessionId: captureNav.sessionId,
+      location: { kind: 'floor', id: captureNav.floor.id },
+      service,
+      navPatch: { unit: null },
+      setCaptureNav,
+      setPhotoGroupId,
+      router,
+    });
   };
 
   return (
@@ -73,17 +124,31 @@ export default function UnitsScreen({ mode }: Props) {
         emptyMessage="Crie a primeira unidade deste pavimento."
         addLabel="Nova unidade"
         header={mode === 'capture'
-          ? <BreadcrumbBar items={[
-            captureNav.block?.name ?? '',
-            captureNav.building?.name ?? '',
-            captureNav.floor?.name ?? '',
-          ]} />
+          ? <CaptureListHeader
+              crumbs={[
+                captureNav.block?.name ?? '',
+                captureNav.building?.name ?? '',
+                captureNav.floor?.name ?? '',
+              ]}
+              showServices={showServices}
+              onToggleServices={(v) => { void setShowServicesPref(v); }}
+            />
           : undefined}
         structureKind="unit"
         structureScopeId={scopeId}
         itemDone={mode === 'capture' ? (u) => doneIds.has(u.id) : undefined}
         onItemsReordered={reload}
         onPressItem={mode === 'capture' ? selectCapture : undefined}
+        onCapturePress={mode === 'capture' ? openHere : undefined}
+        extraSection={mode === 'capture' && showServices
+          ? {
+              title: 'Serviços',
+              items: services,
+              icon: 'tool',
+              onPressItem: (s) => openService(s as Service),
+              itemDone: (s) => doneServiceIds.has(s.id),
+            }
+          : undefined}
         onCreate={async (name) => { if (scopeId) { await createUnit(scopeId, name); await reload(); } }}
         onRename={async (u, name) => { await updateUnit(u.id, { name }); await reload(); }}
         onDelete={async (u) => { await deleteUnit(u.id); await reload(); }}

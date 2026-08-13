@@ -7,16 +7,13 @@ import {
   type WatermarkConfig,
 } from '@/db/database';
 import { formatDate, formatDateTime, parseStoredTimestamp } from '@/utils/datetime';
-import { buildReportBaseName } from '@/utils/reportNaming';
+import {
+  buildReportBaseName,
+  buildReportFolderName,
+  uniqueZipSegment,
+  zipFolderFromHierarchy,
+} from '@/utils/reportNaming';
 import { getPhotoUri } from './photoService';
-
-function sanitize(s: string): string {
-  return s.replace(/[^a-zA-Z0-9\u00C0-\u00FF _-]/g, '').trim().replace(/\s+/g, '_');
-}
-
-function buildReportFolderName(date: string, projectName: string, blockName: string): string {
-  return `${date}_${sanitize(projectName)}_${sanitize(blockName)}`;
-}
 
 function isWatermarkFieldOn(wmConfig: WatermarkConfig, key: string): boolean {
   const f = wmConfig.fields.find(wf => wf.field === key);
@@ -24,28 +21,27 @@ function isWatermarkFieldOn(wmConfig: WatermarkConfig, key: string): boolean {
 }
 
 function buildZipFilename(
-  p: PhotoWithHierarchy,
   seq: string,
   date: string,
+  capturedAt: string,
   wmConfig: WatermarkConfig,
 ): string {
-  if (!wmConfig.enabled) return `${date}_${seq}.jpg`;
-
   const parts: string[] = [date, seq];
 
-  if (isWatermarkFieldOn(wmConfig, 'datetime')) {
-    const d = parseStoredTimestamp(p.captured_at);
+  if (wmConfig.enabled && isWatermarkFieldOn(wmConfig, 'datetime')) {
+    const d = parseStoredTimestamp(capturedAt);
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     parts.push(`${hh}-${mm}`);
   }
-  if (isWatermarkFieldOn(wmConfig, 'quadra') && p.block_name) parts.push(sanitize(p.block_name));
-  if (isWatermarkFieldOn(wmConfig, 'predio') && p.building_name) parts.push(sanitize(p.building_name));
-  if (isWatermarkFieldOn(wmConfig, 'pavimento') && p.floor_name) parts.push(sanitize(p.floor_name));
-  if (isWatermarkFieldOn(wmConfig, 'unidade') && p.unit_name) parts.push(sanitize(p.unit_name));
-  if (isWatermarkFieldOn(wmConfig, 'servico') && p.service_name) parts.push(sanitize(p.service_name));
 
   return `${parts.join('_')}.jpg`;
+}
+
+function buildHierarchyLabel(p: PhotoWithHierarchy): string {
+  return [p.building_name, p.floor_name, p.unit_name, p.service_name]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 // Adds a single already-buffered entry to the zip as a STORE (uncompressed)
@@ -105,7 +101,20 @@ export async function buildReportZip(opts: {
 
   try {
     const indexLines: string[] = [];
+    const folderPathByKey = new Map<string, string>();
+    const usedFolderPaths = new Set<string>();
+    const usedFilePaths = new Set<string>();
     let exported = 0;
+
+    const getFolderPath = (p: PhotoWithHierarchy): string => {
+      const key = `${p.building_name ?? ''}\0${p.floor_name ?? ''}\0${p.unit_name ?? ''}\0${p.service_name ?? ''}`;
+      const cached = folderPathByKey.get(key);
+      if (cached) return cached;
+      const base = zipFolderFromHierarchy(p);
+      const path = uniqueZipSegment(base, usedFolderPaths);
+      folderPathByKey.set(key, path);
+      return path;
+    };
 
     for (let i = 0; i < photos.length; i++) {
       const p = photos[i];
@@ -115,11 +124,13 @@ export async function buildReportZip(opts: {
       } catch {}
       if (bytes) {
         exported++;
-        const folderPath = `${sanitize(p.building_name)}/${sanitize(p.floor_name)}/${sanitize(p.unit_name)}/${sanitize(p.service_name)}`;
+        const folderPath = getFolderPath(p);
         const seq = String(exported).padStart(3, '0');
-        const filename = buildZipFilename(p, seq, opts.date, wmConfig);
-        addStoredEntry(zip, `${folderName}/${folderPath}/${filename}`, bytes);
-        indexLines.push(`${folderPath}/${filename} — ${formatDateTime(p.captured_at)}`);
+        const filename = buildZipFilename(seq, opts.date, p.captured_at, wmConfig);
+        const nested = folderPath ? `${folderPath}/${filename}` : filename;
+        const filePath = uniqueZipSegment(nested, usedFilePaths);
+        addStoredEntry(zip, `${folderName}/${filePath}`, bytes);
+        indexLines.push(`${buildHierarchyLabel(p)} — ${filePath} — ${formatDateTime(p.captured_at)}`);
       }
       throwIfWriteFailed();
       opts.onProgress?.(i + 1, totalSteps);

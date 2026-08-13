@@ -20,6 +20,14 @@ export interface CrudItem {
   name: string;
 }
 
+export interface ExtraSection<T extends CrudItem> {
+  title: string;
+  items: T[];
+  icon?: keyof typeof Feather.glyphMap;
+  onPressItem: (item: T) => void;
+  itemDone?: (item: T) => boolean;
+}
+
 interface Props<T extends CrudItem> {
   items: T[];
   icon?: keyof typeof Feather.glyphMap;
@@ -40,13 +48,15 @@ interface Props<T extends CrudItem> {
   structureScopeId?: number;
   onItemsReordered?: () => void | Promise<void>;
   showFabOutsideEditMode?: boolean;
+  onCapturePress?: () => void;
+  extraSection?: ExtraSection<CrudItem>;
 }
 
 export default function CrudList<T extends CrudItem>({
   items, icon = 'box', emptyTitle, emptyMessage, addLabel,
   subtitleFor, onPressItem, onCreate, onRename, onDelete, onBatchDelete,
   onDuplicate, headerNote, header, itemDone, structureKind, structureScopeId, onItemsReordered,
-  showFabOutsideEditMode,
+  showFabOutsideEditMode, onCapturePress, extraSection,
 }: Props<T>) {
   const c = colors.light;
   const [modalVisible, setModalVisible] = useState(false);
@@ -271,9 +281,38 @@ export default function CrudList<T extends CrudItem>({
     <ScaleDecorator>{renderRowContent(item, drag, isActive)}</ScaleDecorator>
   );
 
+  const extraItems = extraSection?.items ?? [];
+  const showExtra = !editMode && extraItems.length > 0;
+  const plusVisible = !isDragging && (
+    ((editMode || showFabOutsideEditMode) && listData.length > 0)
+    || (showExtra && listData.length === 0)
+  );
+  const cameraVisible = !isDragging && !editMode && !!onCapturePress;
+  const plusBottom = editMode && canBatchDelete ? 88 : 24;
+  const cameraBottom = plusVisible ? plusBottom + 68 : plusBottom;
+  const listPadBottom = cameraVisible && plusVisible ? 180 : 120;
+
+  const extraFooter = showExtra && extraSection ? (
+    <View>
+      <Text style={styles.sectionTitle}>{extraSection.title}</Text>
+      {extraItems.map((item) => (
+        <HierarchyCard
+          key={`extra-${item.id}`}
+          title={item.name}
+          done={extraSection.itemDone?.(item)}
+          left={<Feather name={extraSection.icon ?? 'tool'} size={20} color={c.primary} />}
+          showChevron
+          onPress={() => extraSection.onPressItem(item)}
+        />
+      ))}
+    </View>
+  ) : null;
+
   const noteText = editMode
     ? 'Selecione itens ou arraste para reordenar. Toque em Cancelar para sair.'
     : headerNote ?? null;
+
+  const showEmpty = listData.length === 0 && !showExtra;
 
   return (
     <View style={styles.flex}>
@@ -295,7 +334,7 @@ export default function CrudList<T extends CrudItem>({
         ) : null}
 
         <View style={styles.flex}>
-          {listData.length === 0 ? (
+          {showEmpty ? (
             <EmptyState icon={icon} title={emptyTitle} message={emptyMessage} actionLabel={addLabel} onAction={openCreate} />
           ) : canReorder ? (
             <DraggableFlatList
@@ -305,7 +344,7 @@ export default function CrudList<T extends CrudItem>({
               data={listData}
               keyExtractor={(i) => String(i.id)}
               extraData={{ editMode, selectedIds, listLen: listData.length }}
-              contentContainerStyle={styles.list}
+              contentContainerStyle={[styles.list, { paddingBottom: listPadBottom }]}
               onDragBegin={() => setIsDragging(true)}
               onDragEnd={({ data }) => {
                 setIsDragging(false);
@@ -318,20 +357,31 @@ export default function CrudList<T extends CrudItem>({
             <FlatList
               data={listData}
               keyExtractor={(i) => String(i.id)}
-              extraData={{ editMode, selectedIds, listLen: listData.length }}
-              contentContainerStyle={styles.list}
+              extraData={{ editMode, selectedIds, listLen: listData.length, extraLen: extraItems.length }}
+              contentContainerStyle={[styles.list, { paddingBottom: listPadBottom }]}
               renderItem={({ item }) => renderRowContent(item)}
+              ListFooterComponent={extraFooter}
             />
           )}
         </View>
 
-        {!isDragging && (editMode || showFabOutsideEditMode) && listData.length > 0 && (
+        {plusVisible && (
           <TouchableOpacity
-            style={[styles.fab, editMode && canBatchDelete && styles.fabAboveBatch]}
+            style={[styles.fab, { bottom: plusBottom }]}
             onPress={openCreate}
             activeOpacity={0.85}
           >
             <Feather name="plus" size={26} color="#fff" />
+          </TouchableOpacity>
+        )}
+
+        {cameraVisible && (
+          <TouchableOpacity
+            style={[styles.fab, styles.cameraFab, { bottom: cameraBottom }]}
+            onPress={onCapturePress}
+            activeOpacity={0.85}
+          >
+            <Feather name="camera" size={24} color="#fff" />
           </TouchableOpacity>
         )}
 
@@ -392,6 +442,10 @@ const styles = StyleSheet.create({
   toolbarCancel: { fontSize: 15, color: c.mutedForeground, fontWeight: '600' },
   toolbarAction: { fontSize: 15, color: c.primary, fontWeight: '600' },
   list: { padding: 16, paddingBottom: 120 },
+  sectionTitle: {
+    fontSize: 13, fontWeight: '700', color: c.mutedForeground,
+    marginTop: 8, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.4,
+  },
   row: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
   rowDragging: { opacity: 0.92 },
   rowCard: { flex: 1 },
@@ -404,6 +458,7 @@ const styles = StyleSheet.create({
     backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center', elevation: 4,
     shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
   },
+  cameraFab: { backgroundColor: c.accent },
   fabAboveBatch: { bottom: 88 },
   batchBar: {
     position: 'absolute', left: 16, right: 16, bottom: 24,

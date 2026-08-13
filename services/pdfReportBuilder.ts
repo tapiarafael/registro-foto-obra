@@ -112,10 +112,10 @@ async function loadPhotoBase64(p: PhotoWithHierarchy, quality: ImageQuality): Pr
 
 function getFieldValue(p: PhotoWithHierarchy, field: GroupField): string {
   switch (field) {
-    case 'building': return p.building_name;
-    case 'floor': return p.floor_name;
-    case 'unit': return p.unit_name;
-    case 'service': return p.service_name;
+    case 'building': return p.building_name ?? '';
+    case 'floor': return p.floor_name ?? '';
+    case 'unit': return p.unit_name ?? '';
+    case 'service': return p.service_name ?? '';
   }
 }
 
@@ -231,8 +231,11 @@ function measureMinFollowingHeight(
 
   const firstGroup = groupMap.get(sortedKeys[0])!;
   const level = Math.min(depth, 3);
+  const heading = sortedKeys[0]
+    ? measureHeadingHeight(field, level, true)
+    : 0;
 
-  return measureHeadingHeight(field, level, true) +
+  return heading +
     measureMinFollowingHeight(firstGroup, rest, depth + 1, wmConfig, colWidth, font, fontBold);
 }
 
@@ -656,6 +659,21 @@ async function renderGroupedPhotos(
   for (let idx = 0; idx < sortedKeys.length; idx++) {
     const key = sortedKeys[idx];
     const groupPhotos = groupMap.get(key)!;
+    if (!key) {
+      await renderGroupedPhotos(
+        layout,
+        groupPhotos,
+        rest,
+        quality,
+        wmConfig,
+        primaryColor,
+        onPhoto,
+        total,
+        photoCounter,
+        depth + 1,
+      );
+      continue;
+    }
     const headingH = measureHeadingHeight(field, level, idx === 0);
     const followingH = measureMinFollowingHeight(
       groupPhotos,

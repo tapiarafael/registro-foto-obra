@@ -7,7 +7,8 @@ import colors from '@/constants/colors';
 import {
   getDateSummaries, getBlocksForDate, getBuildingsForDate, getFloorsForDate,
   getUnitsForDate, getServicesForDateUnit, getPhotosForDateUnitService,
-  type DateSummary, type PhotoWithHierarchy,
+  getDirectPhotoCountForDate, getDirectPhotosForDate,
+  type DateSummary, type PhotoWithHierarchy, type PhotoLocationKind,
 } from '@/db/database';
 import { getPhotoUri, getThumbnailUri } from '@/services/photoService';
 import { formatDateLong, formatDateTime } from '@/utils/datetime';
@@ -74,6 +75,33 @@ const LEVEL_CONFIG: Record<HierarchyLevel, {
   },
 };
 
+const DIRECT_PHOTOS_ID = -1;
+
+const PARENT_KIND: Partial<Record<HierarchyLevel, PhotoLocationKind>> = {
+  buildings: 'block',
+  floors: 'building',
+  units: 'floor',
+  services: 'unit',
+};
+
+const PARENT_PATH_KEY: Partial<Record<HierarchyLevel, keyof PathState>> = {
+  buildings: 'block',
+  floors: 'building',
+  units: 'floor',
+  services: 'unit',
+};
+
+async function loadLevelItems(level: HierarchyLevel, date: string, path: PathState): Promise<HierarchyItem[]> {
+  const children = await LEVEL_CONFIG[level].loadItems(date, path);
+  const kind = PARENT_KIND[level];
+  const key = PARENT_PATH_KEY[level];
+  const parent = key ? path[key] : undefined;
+  if (!kind || !parent) return children;
+  const count = await getDirectPhotoCountForDate(kind, parent.id, date);
+  if (count === 0) return children;
+  return [{ id: DIRECT_PHOTOS_ID, name: 'Fotos neste nível', photo_count: count }, ...children];
+}
+
 function isHierarchyLevel(level: Level): level is HierarchyLevel {
   return HIERARCHY_LEVELS.includes(level as HierarchyLevel);
 }
@@ -103,6 +131,7 @@ export default function HistoricoScreen() {
   const [items, setItems] = useState<(DateSummary | HierarchyItem)[]>([]);
   const [photos, setPhotos] = useState<PhotoWithHierarchy[]>([]);
   const [preview, setPreview] = useState<PhotoWithHierarchy | null>(null);
+  const [photoOrigin, setPhotoOrigin] = useState<HierarchyLevel | null>(null);
 
   const loadDates = useCallback(async () => {
     setItems(await getDateSummaries());
@@ -115,6 +144,8 @@ export default function HistoricoScreen() {
   const goDates = async () => {
     setLevel('dates');
     setPath({});
+    setPhotos([]);
+    setPhotoOrigin(null);
     setItems(await getDateSummaries());
   };
 
@@ -127,18 +158,31 @@ export default function HistoricoScreen() {
   };
 
   const openHierarchyItem = async (item: HierarchyItem) => {
-    if (level === 'services') {
-      const nextPhotos = await getPhotosForDateUnitService(path.unit!.id, item.id, date);
-      setPhotos(nextPhotos);
+    if (!isHierarchyLevel(level)) return;
+
+    if (item.id === DIRECT_PHOTOS_ID) {
+      const kind = PARENT_KIND[level];
+      const key = PARENT_PATH_KEY[level];
+      const parent = key ? path[key] : undefined;
+      if (!kind || !parent) return;
+      setPhotos(await getDirectPhotosForDate(kind, parent.id, date));
+      setPhotoOrigin(level);
       setLevel('photos');
       return;
     }
-    if (!isHierarchyLevel(level)) return;
+
+    if (level === 'services') {
+      const nextPhotos = await getPhotosForDateUnitService(path.unit!.id, item.id, date);
+      setPhotos(nextPhotos);
+      setPhotoOrigin(null);
+      setLevel('photos');
+      return;
+    }
 
     const cfg = LEVEL_CONFIG[level];
     const nextLevel = HIERARCHY_LEVELS[HIERARCHY_LEVELS.indexOf(level) + 1];
     const nextPath = { ...path, [cfg.pathKey]: { id: item.id, name: item.name } };
-    const nextItems = await cfg.loadChildren(item, date);
+    const nextItems = await loadLevelItems(nextLevel, date, nextPath);
     setPath(nextPath);
     setItems(nextItems);
     setLevel(nextLevel);
@@ -147,17 +191,19 @@ export default function HistoricoScreen() {
   const back = async () => {
     if (level === 'blocks') return goDates();
     if (level === 'photos') {
-      const services = await LEVEL_CONFIG.services.loadItems(date, path);
+      const origin = photoOrigin ?? 'services';
+      const nextItems = await loadLevelItems(origin, date, path);
       setPhotos([]);
-      setItems(services);
-      setLevel('services');
+      setItems(nextItems);
+      setPhotoOrigin(null);
+      setLevel(origin);
       return;
     }
     if (!isHierarchyLevel(level)) return;
 
     const prevLevel = HIERARCHY_LEVELS[HIERARCHY_LEVELS.indexOf(level) - 1];
     const trimmedPath = pathForLevel(path, prevLevel);
-    const prevItems = await LEVEL_CONFIG[prevLevel].loadItems(date, trimmedPath);
+    const prevItems = await loadLevelItems(prevLevel, date, trimmedPath);
     setPath(trimmedPath);
     setItems(prevItems);
     setLevel(prevLevel);
@@ -238,7 +284,7 @@ export default function HistoricoScreen() {
               title={item.name}
               subtitle={`${item.photo_count} foto(s)`}
               badge={item.photo_count}
-              left={<Feather name={LEVEL_CONFIG[level].icon} size={22} color={c.primary} />}
+              left={<Feather name={item.id === DIRECT_PHOTOS_ID ? 'camera' : LEVEL_CONFIG[level].icon} size={22} color={c.primary} />}
               onPress={() => openHierarchyItem(item)}
             />
           )}
@@ -263,6 +309,9 @@ function PhotoPreview({ preview, onClose }: PhotoPreviewProps) {
             <Image source={{ uri: getPhotoUri(preview.internal_filename) }} style={pStyles.img} resizeMode="contain" />
             <View style={pStyles.badge}>
               <Text style={pStyles.badgeText}>{formatDateTime(preview.captured_at)}</Text>
+              {preview.service_name ? (
+                <Text style={pStyles.badgeText}>{preview.service_name}</Text>
+              ) : null}
             </View>
             <TouchableOpacity style={pStyles.close} onPress={onClose}>
               <Feather name="x" size={22} color="#fff" />

@@ -77,11 +77,21 @@ export interface InspectionSession {
   created_at: string;
 }
 
+export type PhotoLocationKind = 'block' | 'building' | 'floor' | 'unit';
+
+export interface PhotoLocation {
+  kind: PhotoLocationKind;
+  id: number;
+}
+
 export interface PhotoGroup {
   id: number;
   inspection_session_id: number;
-  unit_id: number;
-  service_id: number;
+  block_id: number | null;
+  building_id: number | null;
+  floor_id: number | null;
+  unit_id: number | null;
+  service_id: number | null;
   created_at: string;
 }
 
@@ -103,15 +113,15 @@ export interface Photo {
 }
 
 export interface PhotoWithHierarchy extends Photo {
-  block_name: string;
-  building_name: string;
-  floor_name: string;
-  unit_name: string;
-  service_name: string;
-  building_sort?: number;
-  floor_sort?: number;
-  unit_sort?: number;
-  service_sort?: number;
+  block_name: string | null;
+  building_name: string | null;
+  floor_name: string | null;
+  unit_name: string | null;
+  service_name: string | null;
+  building_sort?: number | null;
+  floor_sort?: number | null;
+  unit_sort?: number | null;
+  service_sort?: number | null;
 }
 
 export interface DateSummary {
@@ -133,6 +143,29 @@ export interface GeneratedReport {
   zip_path: string | null;
   config_hash: string | null;
 }
+
+const LOCATION_COLUMN: Record<PhotoLocationKind, 'block_id' | 'building_id' | 'floor_id' | 'unit_id'> = {
+  block: 'block_id',
+  building: 'building_id',
+  floor: 'floor_id',
+  unit: 'unit_id',
+};
+
+/** Resolve block/building/floor/unit/service names from any photo_group location. */
+const PHOTO_HIERARCHY_JOINS = `
+  JOIN photo_group pg ON pg.id=p.photo_group_id
+  LEFT JOIN unit u ON u.id=pg.unit_id
+  LEFT JOIN floor f ON f.id=COALESCE(pg.floor_id, u.floor_id)
+  LEFT JOIN building bl ON bl.id=COALESCE(pg.building_id, f.building_id)
+  LEFT JOIN block b ON b.id=COALESCE(pg.block_id, bl.block_id)
+  LEFT JOIN service s ON s.id=pg.service_id
+`;
+
+const PHOTO_HIERARCHY_SELECT = `
+  SELECT p.*, b.name as block_name, bl.name as building_name, f.name as floor_name,
+    u.name as unit_name, s.name as service_name,
+    bl.sort_order as building_sort, f.sort_order as floor_sort, u.sort_order as unit_sort, s.sort_order as service_sort
+`;
 
 // ===== DB CONNECTION =====
 let _db: SQLite.SQLiteDatabase | null = null;
@@ -314,9 +347,9 @@ export async function updateBlock(id: number, data: { name?: string; sort_order?
 export async function deleteBlock(id: number): Promise<GeneratedReport[]> {
   const db = await getDatabase();
   const c = await db.getFirstAsync<{ count: number }>(`
-    SELECT COUNT(*) as count FROM photo p
-    JOIN photo_group pg ON pg.id=p.photo_group_id JOIN unit u ON u.id=pg.unit_id
-    JOIN floor f ON f.id=u.floor_id JOIN building b ON b.id=f.building_id WHERE b.block_id=?`, [id]);
+    SELECT COUNT(p.id) as count FROM photo p
+    ${PHOTO_HIERARCHY_JOINS}
+    WHERE b.id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos nesta quadra.');
   let reports: GeneratedReport[] = [];
   await db.withTransactionAsync(async () => {
@@ -324,8 +357,12 @@ export async function deleteBlock(id: number): Promise<GeneratedReport[]> {
       'SELECT * FROM generated_report WHERE block_id=?',
       [id],
     );
-    await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
-      SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id JOIN building b ON b.id=f.building_id WHERE b.block_id=?)`, [id]);
+    await db.runAsync(`DELETE FROM photo_group WHERE
+      block_id=?
+      OR building_id IN (SELECT id FROM building WHERE block_id=?)
+      OR floor_id IN (SELECT f.id FROM floor f JOIN building bl ON bl.id=f.building_id WHERE bl.block_id=?)
+      OR unit_id IN (SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id JOIN building bl ON bl.id=f.building_id WHERE bl.block_id=?)`,
+      [id, id, id, id]);
     await db.runAsync(`DELETE FROM unit WHERE floor_id IN (
       SELECT f.id FROM floor f JOIN building b ON b.id=f.building_id WHERE b.block_id=?)`, [id]);
     await db.runAsync('DELETE FROM floor WHERE building_id IN (SELECT id FROM building WHERE block_id=?)', [id]);
@@ -341,15 +378,15 @@ export async function deleteBlocks(ids: number[]): Promise<GeneratedReport[]> {
   const db = await getDatabase();
   const placeholders = ids.map(() => '?').join(',');
   const blocked = await db.getAllAsync<{ name: string }>(`
-    SELECT DISTINCT b.name FROM block b
-    WHERE b.id IN (${placeholders})
+    SELECT DISTINCT blk.name FROM block blk
+    WHERE blk.id IN (${placeholders})
     AND EXISTS (
       SELECT 1 FROM photo p
       JOIN photo_group pg ON pg.id=p.photo_group_id
-      JOIN unit u ON u.id=pg.unit_id
-      JOIN floor f ON f.id=u.floor_id
-      JOIN building bl ON bl.id=f.building_id
-      WHERE bl.block_id=b.id
+      LEFT JOIN unit u ON u.id=pg.unit_id
+      LEFT JOIN floor f ON f.id=COALESCE(pg.floor_id, u.floor_id)
+      LEFT JOIN building bl ON bl.id=COALESCE(pg.building_id, f.building_id)
+      WHERE COALESCE(pg.block_id, bl.block_id)=blk.id
     )`, ids);
   if (blocked.length > 0) {
     throw new Error(batchDeleteBlockedMessage(blocked.map(b => b.name)));
@@ -360,9 +397,12 @@ export async function deleteBlocks(ids: number[]): Promise<GeneratedReport[]> {
       `SELECT * FROM generated_report WHERE block_id IN (${placeholders})`,
       ids,
     );
-    await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
-      SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id JOIN building bl ON bl.id=f.building_id
-      WHERE bl.block_id IN (${placeholders}))`, ids);
+    await db.runAsync(`DELETE FROM photo_group WHERE
+      block_id IN (${placeholders})
+      OR building_id IN (SELECT id FROM building WHERE block_id IN (${placeholders}))
+      OR floor_id IN (SELECT f.id FROM floor f JOIN building bl ON bl.id=f.building_id WHERE bl.block_id IN (${placeholders}))
+      OR unit_id IN (SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id JOIN building bl ON bl.id=f.building_id WHERE bl.block_id IN (${placeholders}))`,
+      [...ids, ...ids, ...ids, ...ids]);
     await db.runAsync(`DELETE FROM unit WHERE floor_id IN (
       SELECT f.id FROM floor f JOIN building bl ON bl.id=f.building_id WHERE bl.block_id IN (${placeholders}))`, ids);
     await db.runAsync(`DELETE FROM floor WHERE building_id IN (SELECT id FROM building WHERE block_id IN (${placeholders}))`, ids);
@@ -403,13 +443,16 @@ export async function updateBuilding(id: number, data: { name?: string; sort_ord
 export async function deleteBuilding(id: number): Promise<void> {
   const db = await getDatabase();
   const c = await db.getFirstAsync<{ count: number }>(`
-    SELECT COUNT(*) as count FROM photo p
-    JOIN photo_group pg ON pg.id=p.photo_group_id JOIN unit u ON u.id=pg.unit_id
-    JOIN floor f ON f.id=u.floor_id WHERE f.building_id=?`, [id]);
+    SELECT COUNT(p.id) as count FROM photo p
+    ${PHOTO_HIERARCHY_JOINS}
+    WHERE bl.id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos neste prédio.');
   await db.withTransactionAsync(async () => {
-    await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
-      SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id WHERE f.building_id=?)`, [id]);
+    await db.runAsync(`DELETE FROM photo_group WHERE
+      building_id=?
+      OR floor_id IN (SELECT id FROM floor WHERE building_id=?)
+      OR unit_id IN (SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id WHERE f.building_id=?)`,
+      [id, id, id]);
     await db.runAsync('DELETE FROM unit WHERE floor_id IN (SELECT id FROM floor WHERE building_id=?)', [id]);
     await db.runAsync('DELETE FROM floor WHERE building_id=?', [id]);
     await db.runAsync('DELETE FROM building WHERE id=?', [id]);
@@ -421,21 +464,24 @@ export async function deleteBuildings(ids: number[]): Promise<void> {
   const db = await getDatabase();
   const placeholders = ids.map(() => '?').join(',');
   const blocked = await db.getAllAsync<{ name: string }>(`
-    SELECT DISTINCT b.name FROM building b
-    WHERE b.id IN (${placeholders})
+    SELECT DISTINCT bld.name FROM building bld
+    WHERE bld.id IN (${placeholders})
     AND EXISTS (
       SELECT 1 FROM photo p
       JOIN photo_group pg ON pg.id=p.photo_group_id
-      JOIN unit u ON u.id=pg.unit_id
-      JOIN floor f ON f.id=u.floor_id
-      WHERE f.building_id=b.id
+      LEFT JOIN unit u ON u.id=pg.unit_id
+      LEFT JOIN floor f ON f.id=COALESCE(pg.floor_id, u.floor_id)
+      WHERE COALESCE(pg.building_id, f.building_id)=bld.id
     )`, ids);
   if (blocked.length > 0) {
     throw new Error(batchDeleteBlockedMessage(blocked.map(b => b.name)));
   }
   await db.withTransactionAsync(async () => {
-    await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (
-      SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id WHERE f.building_id IN (${placeholders}))`, ids);
+    await db.runAsync(`DELETE FROM photo_group WHERE
+      building_id IN (${placeholders})
+      OR floor_id IN (SELECT id FROM floor WHERE building_id IN (${placeholders}))
+      OR unit_id IN (SELECT u.id FROM unit u JOIN floor f ON f.id=u.floor_id WHERE f.building_id IN (${placeholders}))`,
+      [...ids, ...ids, ...ids]);
     await db.runAsync(`DELETE FROM unit WHERE floor_id IN (SELECT id FROM floor WHERE building_id IN (${placeholders}))`, ids);
     await db.runAsync(`DELETE FROM floor WHERE building_id IN (${placeholders})`, ids);
     await db.runAsync(`DELETE FROM building WHERE id IN (${placeholders})`, ids);
@@ -578,11 +624,12 @@ export async function updateFloor(id: number, data: { name?: string; sort_order?
 export async function deleteFloor(id: number): Promise<void> {
   const db = await getDatabase();
   const c = await db.getFirstAsync<{ count: number }>(`
-    SELECT COUNT(*) as count FROM photo p
-    JOIN photo_group pg ON pg.id=p.photo_group_id JOIN unit u ON u.id=pg.unit_id WHERE u.floor_id=?`, [id]);
+    SELECT COUNT(p.id) as count FROM photo p
+    ${PHOTO_HIERARCHY_JOINS}
+    WHERE f.id=?`, [id]);
   if (c && c.count > 0) throw new Error('Não é possível excluir: existem fotos neste pavimento.');
   await db.withTransactionAsync(async () => {
-    await db.runAsync('DELETE FROM photo_group WHERE unit_id IN (SELECT id FROM unit WHERE floor_id=?)', [id]);
+    await db.runAsync(`DELETE FROM photo_group WHERE floor_id=? OR unit_id IN (SELECT id FROM unit WHERE floor_id=?)`, [id, id]);
     await db.runAsync('DELETE FROM unit WHERE floor_id=?', [id]);
     await db.runAsync('DELETE FROM floor WHERE id=?', [id]);
   });
@@ -593,19 +640,22 @@ export async function deleteFloors(ids: number[]): Promise<void> {
   const db = await getDatabase();
   const placeholders = ids.map(() => '?').join(',');
   const blocked = await db.getAllAsync<{ name: string }>(`
-    SELECT DISTINCT f.name FROM floor f
-    WHERE f.id IN (${placeholders})
+    SELECT DISTINCT fl.name FROM floor fl
+    WHERE fl.id IN (${placeholders})
     AND EXISTS (
       SELECT 1 FROM photo p
       JOIN photo_group pg ON pg.id=p.photo_group_id
-      JOIN unit u ON u.id=pg.unit_id
-      WHERE u.floor_id=f.id
+      LEFT JOIN unit u ON u.id=pg.unit_id
+      WHERE COALESCE(pg.floor_id, u.floor_id)=fl.id
     )`, ids);
   if (blocked.length > 0) {
     throw new Error(batchDeleteBlockedMessage(blocked.map(b => b.name)));
   }
   await db.withTransactionAsync(async () => {
-    await db.runAsync(`DELETE FROM photo_group WHERE unit_id IN (SELECT id FROM unit WHERE floor_id IN (${placeholders}))`, ids);
+    await db.runAsync(`DELETE FROM photo_group WHERE
+      floor_id IN (${placeholders})
+      OR unit_id IN (SELECT id FROM unit WHERE floor_id IN (${placeholders}))`,
+      [...ids, ...ids]);
     await db.runAsync(`DELETE FROM unit WHERE floor_id IN (${placeholders})`, ids);
     await db.runAsync(`DELETE FROM floor WHERE id IN (${placeholders})`, ids);
   });
@@ -778,16 +828,33 @@ export async function getSessionById(id: number): Promise<InspectionSession | nu
 }
 
 // ===== PHOTO GROUPS =====
-export async function getOrCreatePhotoGroup(sessionId: number, unitId: number, serviceId: number): Promise<number> {
+export async function getOrCreatePhotoGroup(
+  sessionId: number,
+  location: PhotoLocation,
+  serviceId: number | null,
+): Promise<number> {
   const db = await getDatabase();
+  const col = LOCATION_COLUMN[location.kind];
+  if (serviceId == null) {
+    const existing = await db.getFirstAsync<PhotoGroup>(
+      `SELECT * FROM photo_group WHERE inspection_session_id=? AND ${col}=? AND service_id IS NULL`,
+      [sessionId, location.id],
+    );
+    if (existing) return existing.id;
+    const r = await db.runAsync(
+      `INSERT INTO photo_group (inspection_session_id, ${col}) VALUES (?,?)`,
+      [sessionId, location.id],
+    );
+    return r.lastInsertRowId;
+  }
   const existing = await db.getFirstAsync<PhotoGroup>(
-    'SELECT * FROM photo_group WHERE inspection_session_id=? AND unit_id=? AND service_id=?',
-    [sessionId, unitId, serviceId]
+    `SELECT * FROM photo_group WHERE inspection_session_id=? AND ${col}=? AND service_id=?`,
+    [sessionId, location.id, serviceId],
   );
   if (existing) return existing.id;
   const r = await db.runAsync(
-    'INSERT INTO photo_group (inspection_session_id, unit_id, service_id) VALUES (?,?,?)',
-    [sessionId, unitId, serviceId]
+    `INSERT INTO photo_group (inspection_session_id, ${col}, service_id) VALUES (?,?,?)`,
+    [sessionId, location.id, serviceId],
   );
   return r.lastInsertRowId;
 }
@@ -860,12 +927,8 @@ export async function getDateSummaries(): Promise<DateSummary[]> {
     db.getAllAsync<{ date: string; block_count: number }>(`
       SELECT p.captured_date as date, COUNT(DISTINCT b.id) as block_count
       FROM photo p
-      JOIN photo_group pg ON pg.id=p.photo_group_id
-      JOIN unit u ON u.id=pg.unit_id
-      JOIN floor f ON f.id=u.floor_id
-      JOIN building bl ON bl.id=f.building_id
-      JOIN block b ON b.id=bl.block_id
-      WHERE p.captured_date IS NOT NULL
+      ${PHOTO_HIERARCHY_JOINS}
+      WHERE p.captured_date IS NOT NULL AND b.id IS NOT NULL
       GROUP BY p.captured_date
     `),
   ]);
@@ -878,14 +941,10 @@ export async function getDateSummaries(): Promise<DateSummary[]> {
 export async function getBlocksForDate(date: string): Promise<(Block & { photo_count: number })[]> {
   const db = await getDatabase();
   return db.getAllAsync<Block & { photo_count: number }>(`
-    SELECT DISTINCT b.*, COUNT(p.id) as photo_count
-    FROM block b
-    JOIN building bl ON bl.block_id=b.id
-    JOIN floor f ON f.building_id=bl.id
-    JOIN unit u ON u.floor_id=f.id
-    JOIN photo_group pg ON pg.unit_id=u.id
-    JOIN photo p ON p.photo_group_id=pg.id
-    WHERE p.captured_date=?
+    SELECT b.*, COUNT(p.id) as photo_count
+    FROM photo p
+    ${PHOTO_HIERARCHY_JOINS}
+    WHERE p.captured_date=? AND b.id IS NOT NULL
     GROUP BY b.id ORDER BY b.sort_order
   `, [date]);
 }
@@ -893,13 +952,10 @@ export async function getBlocksForDate(date: string): Promise<(Block & { photo_c
 export async function getBuildingsForDate(blockId: number, date: string): Promise<(Building & { photo_count: number })[]> {
   const db = await getDatabase();
   return db.getAllAsync<Building & { photo_count: number }>(`
-    SELECT DISTINCT bl.*, COUNT(p.id) as photo_count
-    FROM building bl
-    JOIN floor f ON f.building_id=bl.id
-    JOIN unit u ON u.floor_id=f.id
-    JOIN photo_group pg ON pg.unit_id=u.id
-    JOIN photo p ON p.photo_group_id=pg.id
-    WHERE bl.block_id=? AND p.captured_date=?
+    SELECT bl.*, COUNT(p.id) as photo_count
+    FROM photo p
+    ${PHOTO_HIERARCHY_JOINS}
+    WHERE bl.block_id=? AND p.captured_date=? AND bl.id IS NOT NULL
     GROUP BY bl.id ORDER BY bl.sort_order
   `, [blockId, date]);
 }
@@ -907,12 +963,10 @@ export async function getBuildingsForDate(blockId: number, date: string): Promis
 export async function getFloorsForDate(buildingId: number, date: string): Promise<(Floor & { photo_count: number })[]> {
   const db = await getDatabase();
   return db.getAllAsync<Floor & { photo_count: number }>(`
-    SELECT DISTINCT f.*, COUNT(p.id) as photo_count
-    FROM floor f
-    JOIN unit u ON u.floor_id=f.id
-    JOIN photo_group pg ON pg.unit_id=u.id
-    JOIN photo p ON p.photo_group_id=pg.id
-    WHERE f.building_id=? AND p.captured_date=?
+    SELECT f.*, COUNT(p.id) as photo_count
+    FROM photo p
+    ${PHOTO_HIERARCHY_JOINS}
+    WHERE f.building_id=? AND p.captured_date=? AND f.id IS NOT NULL
     GROUP BY f.id ORDER BY f.sort_order
   `, [buildingId, date]);
 }
@@ -920,73 +974,101 @@ export async function getFloorsForDate(buildingId: number, date: string): Promis
 export async function getUnitsForDate(floorId: number, date: string): Promise<(Unit & { photo_count: number })[]> {
   const db = await getDatabase();
   return db.getAllAsync<Unit & { photo_count: number }>(`
-    SELECT DISTINCT u.*, COUNT(p.id) as photo_count
-    FROM unit u
-    JOIN photo_group pg ON pg.unit_id=u.id
-    JOIN photo p ON p.photo_group_id=pg.id
-    WHERE u.floor_id=? AND p.captured_date=?
+    SELECT u.*, COUNT(p.id) as photo_count
+    FROM photo p
+    ${PHOTO_HIERARCHY_JOINS}
+    WHERE u.floor_id=? AND p.captured_date=? AND u.id IS NOT NULL
     GROUP BY u.id ORDER BY u.sort_order
   `, [floorId, date]);
 }
 
 export async function getServicesForDateUnit(unitId: number, date: string): Promise<(Service & { photo_count: number })[]> {
+  return getServicesForDateLocation('unit', unitId, date);
+}
+
+export async function getServicesForDateLocation(
+  kind: PhotoLocationKind,
+  id: number,
+  date: string,
+): Promise<(Service & { photo_count: number })[]> {
   const db = await getDatabase();
+  const col = LOCATION_COLUMN[kind];
   return db.getAllAsync<Service & { photo_count: number }>(`
     SELECT DISTINCT s.*, COUNT(p.id) as photo_count
     FROM service s
     JOIN photo_group pg ON pg.service_id=s.id
     JOIN photo p ON p.photo_group_id=pg.id
-    WHERE pg.unit_id=? AND p.captured_date=?
+    WHERE pg.${col}=? AND p.captured_date=?
     GROUP BY s.id ORDER BY s.sort_order
-  `, [unitId, date]);
+  `, [id, date]);
+}
+
+export async function getDirectPhotoCountForDate(
+  kind: PhotoLocationKind,
+  id: number,
+  date: string,
+): Promise<number> {
+  const db = await getDatabase();
+  const col = LOCATION_COLUMN[kind];
+  const r = await db.getFirstAsync<{ count: number }>(`
+    SELECT COUNT(p.id) as count FROM photo p
+    JOIN photo_group pg ON pg.id=p.photo_group_id
+    WHERE pg.${col}=? AND p.captured_date=?
+  `, [id, date]);
+  return r?.count ?? 0;
+}
+
+export async function getDirectPhotosForDate(
+  kind: PhotoLocationKind,
+  id: number,
+  date: string,
+): Promise<PhotoWithHierarchy[]> {
+  const db = await getDatabase();
+  const col = LOCATION_COLUMN[kind];
+  return db.getAllAsync<PhotoWithHierarchy>(`
+    ${PHOTO_HIERARCHY_SELECT}
+    FROM photo p
+    ${PHOTO_HIERARCHY_JOINS}
+    WHERE pg.${col}=? AND p.captured_date=?
+    ORDER BY COALESCE(s.sort_order, 0), p.captured_at
+  `, [id, date]);
 }
 
 export async function getPhotosForDateUnitService(unitId: number, serviceId: number, date: string): Promise<PhotoWithHierarchy[]> {
   const db = await getDatabase();
   return db.getAllAsync<PhotoWithHierarchy>(`
-    SELECT p.*, b.name as block_name, bl.name as building_name, f.name as floor_name, u.name as unit_name, s.name as service_name
+    ${PHOTO_HIERARCHY_SELECT}
     FROM photo p
-    JOIN photo_group pg ON pg.id=p.photo_group_id
-    JOIN unit u ON u.id=pg.unit_id
-    JOIN service s ON s.id=pg.service_id
-    JOIN floor f ON f.id=u.floor_id
-    JOIN building bl ON bl.id=f.building_id
-    JOIN block b ON b.id=bl.block_id
+    ${PHOTO_HIERARCHY_JOINS}
     WHERE pg.unit_id=? AND pg.service_id=? AND p.captured_date=?
     ORDER BY p.captured_at
   `, [unitId, serviceId, date]);
 }
 
-// ===== REPORT QUERIES =====
 export async function getPhotosForReport(blockId: number, date: string): Promise<PhotoWithHierarchy[]> {
   const db = await getDatabase();
   return db.getAllAsync<PhotoWithHierarchy>(`
-    SELECT p.*, b.name as block_name, bl.name as building_name, f.name as floor_name,
-      u.name as unit_name, s.name as service_name,
-      bl.sort_order as building_sort, f.sort_order as floor_sort, u.sort_order as unit_sort, s.sort_order as service_sort
+    ${PHOTO_HIERARCHY_SELECT}
     FROM photo p
-    JOIN photo_group pg ON pg.id=p.photo_group_id
-    JOIN unit u ON u.id=pg.unit_id
-    JOIN service s ON s.id=pg.service_id
-    JOIN floor f ON f.id=u.floor_id
-    JOIN building bl ON bl.id=f.building_id
-    JOIN block b ON b.id=bl.block_id
+    ${PHOTO_HIERARCHY_JOINS}
     WHERE b.id=? AND p.captured_date=?
-    ORDER BY bl.sort_order, f.sort_order, u.sort_order, s.sort_order, p.captured_at
+    ORDER BY COALESCE(bl.sort_order, 0), COALESCE(f.sort_order, 0), COALESCE(u.sort_order, 0), COALESCE(s.sort_order, 0), p.captured_at
   `, [blockId, date]);
 }
 
 export async function getBlockPhotoCountForDate(date: string): Promise<{ block_id: number; block_name: string; photo_count: number }[]> {
   const db = await getDatabase();
   return db.getAllAsync(`
-    SELECT b.id as block_id, b.name as block_name, COUNT(p.id) as photo_count
-    FROM block b
-    LEFT JOIN building bl ON bl.block_id=b.id
-    LEFT JOIN floor f ON f.building_id=bl.id
-    LEFT JOIN unit u ON u.floor_id=f.id
-    LEFT JOIN photo_group pg ON pg.unit_id=u.id
-    LEFT JOIN photo p ON p.photo_group_id=pg.id AND p.captured_date=?
-    GROUP BY b.id ORDER BY b.sort_order
+    SELECT blk.id as block_id, blk.name as block_name, COALESCE(x.photo_count, 0) as photo_count
+    FROM block blk
+    LEFT JOIN (
+      SELECT b.id as block_id, COUNT(p.id) as photo_count
+      FROM photo p
+      ${PHOTO_HIERARCHY_JOINS}
+      WHERE p.captured_date=? AND b.id IS NOT NULL
+      GROUP BY b.id
+    ) x ON x.block_id=blk.id
+    ORDER BY blk.sort_order
   `, [date]);
 }
 
@@ -995,11 +1077,8 @@ export async function getPhotoCountForBlockDate(blockId: number, date: string): 
   const r = await db.getFirstAsync<{ count: number }>(`
     SELECT COUNT(p.id) as count
     FROM photo p
-    JOIN photo_group pg ON pg.id=p.photo_group_id
-    JOIN unit u ON u.id=pg.unit_id
-    JOIN floor f ON f.id=u.floor_id
-    JOIN building bl ON bl.id=f.building_id
-    WHERE bl.block_id=? AND p.captured_date=?
+    ${PHOTO_HIERARCHY_JOINS}
+    WHERE b.id=? AND p.captured_date=?
   `, [blockId, date]);
   return r?.count ?? 0;
 }
@@ -1065,7 +1144,7 @@ export async function getReportConfigHash(): Promise<string> {
     getAppSetting('report_showLabels'),
     getWatermarkConfig(),
   ]);
-  return JSON.stringify({ color, pagination, logo, grouping, quality, showLabels, wm });
+  return JSON.stringify({ color, pagination, logo, grouping, quality, showLabels, wm, zipPathVersion: 3 });
 }
 
 // ===== STORAGE =====
@@ -1280,6 +1359,15 @@ export async function setAppSetting(key: string, value: string): Promise<void> {
 export async function getReportShowLabels(): Promise<boolean> {
   const v = await getAppSetting('report_showLabels');
   return v !== '0';
+}
+
+export async function getShowServices(): Promise<boolean> {
+  const v = await getAppSetting('show_services');
+  return v !== '0';
+}
+
+export async function setShowServices(show: boolean): Promise<void> {
+  await setAppSetting('show_services', show ? '1' : '0');
 }
 
 export async function getAppSchemaVersion(): Promise<number> {

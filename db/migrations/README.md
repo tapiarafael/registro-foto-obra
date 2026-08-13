@@ -23,11 +23,12 @@ Schema changes are versioned SQL files applied automatically at app startup via 
 | 1 | `001_initial.sql` | Full baseline schema, indexes, unit_type seeds, app_settings |
 | 2 | `002_captured_date.sql` | `captured_date` column, backfill, index |
 | 3 | `003_report_cache.sql` | `generated_report` cache paths + unique index |
+| 4 | `004_photo_group_location.sql` | Nullable location FKs on `photo_group`; optional `service_id` |
 
 ## Manual Android test checklist
 
-- [ ] **Fresh install:** `PRAGMA user_version` is `3`; all tables exist; unit types seeded; `photo.captured_date` column present; `generated_report` cache columns present.
-- [ ] **Upgrade:** Install a build at `user_version` 2 with photos → install new build → data intact; `user_version` is `3`; cache columns added.
+- [ ] **Fresh install:** `PRAGMA user_version` is `4`; all tables exist; unit types seeded; `photo.captured_date` column present; `generated_report` cache columns present; `photo_group` location columns nullable.
+- [ ] **Upgrade:** Install a build at `user_version` 3 with photos → install new build → data intact; `user_version` is `4`; existing `photo_group` rows keep `unit_id` + `service_id`.
 - [ ] **Failed migration:** (dev only) Break a migration SQL → app fails with a clear error; DB version unchanged.
 
 ## Debug

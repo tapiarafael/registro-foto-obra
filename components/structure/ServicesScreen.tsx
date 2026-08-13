@@ -4,11 +4,13 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import {
   getServices, createService, updateService, deleteService, deleteServices,
-  getServicesForDateUnit, getOrCreatePhotoGroup, type Service,
+  getServicesForDateUnit, type Service,
 } from '@/db/database';
 import { todayDateString } from '@/utils/datetime';
+import { openCaptureCamera } from '@/utils/openCaptureCamera';
+import { useShowServices } from '@/hooks/useShowServices';
 import CrudList from '@/components/CrudList';
-import BreadcrumbBar from '@/components/BreadcrumbBar';
+import CaptureListHeader from '@/components/CaptureListHeader';
 
 const normalize = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
@@ -17,6 +19,7 @@ type Props = { mode: 'capture' | 'manage' };
 export default function ServicesScreen({ mode }: Props) {
   const router = useRouter();
   const { project, captureNav, setCaptureNav, setPhotoGroupId } = useApp();
+  const { showServices, setShowServicesPref } = useShowServices();
   const [items, setItems] = useState<Service[]>([]);
   const [doneIds, setDoneIds] = useState<Set<number>>(new Set());
 
@@ -33,12 +36,17 @@ export default function ServicesScreen({ mode }: Props) {
 
   useFocusEffect(useCallback(() => { reload(); }, [reload]));
 
-  const selectCapture = async (service: Service) => {
+  const openUnitCamera = (service: Service | null) => {
     if (!captureNav.sessionId || !captureNav.unit) return;
-    const groupId = await getOrCreatePhotoGroup(captureNav.sessionId, captureNav.unit.id, service.id);
-    setCaptureNav({ service });
-    setPhotoGroupId(groupId);
-    router.push('/registrar/camera');
+    void openCaptureCamera({
+      sessionId: captureNav.sessionId,
+      location: { kind: 'unit', id: captureNav.unit.id },
+      service,
+      navPatch: {},
+      setCaptureNav,
+      setPhotoGroupId,
+      router,
+    });
   };
 
   const createAndMaybeOpen = async (name: string) => {
@@ -55,36 +63,43 @@ export default function ServicesScreen({ mode }: Props) {
     }
     const serviceId = await createService(project.id, trimmed);
     await reload();
-    if (captureNav.sessionId && captureNav.unit) {
-      const groupId = await getOrCreatePhotoGroup(captureNav.sessionId, captureNav.unit.id, serviceId);
-      const newService = (await getServices(project.id)).find((s) => s.id === serviceId);
-      if (newService) setCaptureNav({ service: newService });
-      setPhotoGroupId(groupId);
-      router.push('/registrar/camera');
+    const newService = (await getServices(project.id)).find((s) => s.id === serviceId) ?? null;
+    if (captureNav.sessionId && captureNav.unit && newService) {
+      openUnitCamera(newService);
     }
   };
 
+  const listItems = mode === 'capture' && !showServices ? [] : items;
+  const hidden = mode === 'capture' && !showServices;
+
   return (
     <CrudList<Service>
-      items={items}
+      items={listItems}
       icon="tool"
-      emptyTitle="Nenhum serviço"
-      emptyMessage="Cadastre os serviços que serão fotografados."
+      emptyTitle={hidden ? 'Serviços ocultos' : 'Nenhum serviço'}
+      emptyMessage={hidden
+        ? 'Toque na câmera para fotografar esta unidade sem serviço.'
+        : 'Cadastre os serviços que serão fotografados.'}
       addLabel="Novo serviço"
       header={mode === 'capture'
-        ? <BreadcrumbBar items={[
-          captureNav.block?.name ?? '',
-          captureNav.building?.name ?? '',
-          captureNav.floor?.name ?? '',
-          captureNav.unit?.name ?? '',
-        ]} />
+        ? <CaptureListHeader
+            crumbs={[
+              captureNav.block?.name ?? '',
+              captureNav.building?.name ?? '',
+              captureNav.floor?.name ?? '',
+              captureNav.unit?.name ?? '',
+            ]}
+            showServices={showServices}
+            onToggleServices={(v) => { void setShowServicesPref(v); }}
+          />
         : undefined}
       structureKind="service"
       structureScopeId={project?.id}
-      showFabOutsideEditMode
+      showFabOutsideEditMode={!hidden}
       itemDone={mode === 'capture' ? (s) => doneIds.has(s.id) : undefined}
       onItemsReordered={reload}
-      onPressItem={mode === 'capture' ? (s) => { void selectCapture(s); } : undefined}
+      onPressItem={mode === 'capture' ? (s) => openUnitCamera(s) : undefined}
+      onCapturePress={mode === 'capture' ? () => openUnitCamera(null) : undefined}
       onCreate={mode === 'capture'
         ? createAndMaybeOpen
         : async (name) => { if (project) { await createService(project.id, name); await reload(); } }}
