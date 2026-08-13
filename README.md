@@ -61,8 +61,10 @@ Scripts auxiliares ficam em `scripts/` (`android-env.sh`, `check-android-env.sh`
 
 ```bash
 eas login
-pnpm build:preview      # APK interno para sideload
-pnpm build:production   # AAB para Google Play
+pnpm build:preview            # APK interno (EAS cloud)
+pnpm build:production         # AAB para Google Play (EAS cloud)
+pnpm build:preview:local      # APK interno, Gradle local (JDK 17 + Node 22)
+pnpm build:production:local   # AAB para Google Play, Gradle local
 ```
 
 Após alterar dependências nativas (câmera, SQLite, etc.), gere um novo build e reinstale o APK no dispositivo.
@@ -172,8 +174,10 @@ Schema versionado em `db/migrate.ts` com `PRAGMA user_version`. Os arquivos em `
 | `pnpm android:apk:release` | APK release via Gradle |
 | `pnpm android:install:debug` | Instala APK debug |
 | `pnpm android:install:release` | Instala APK release |
-| `pnpm build:preview` | EAS build — APK preview |
-| `pnpm build:production` | EAS build — AAB produção |
+| `pnpm build:preview` | EAS cloud — APK preview |
+| `pnpm build:preview:local` | EAS local — APK preview |
+| `pnpm build:production` | EAS cloud — AAB produção |
+| `pnpm build:production:local` | EAS local — AAB produção |
 
 ---
 
