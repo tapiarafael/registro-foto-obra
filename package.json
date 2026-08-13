@@ -18,12 +18,14 @@
     "build:preview": "eas build --platform android --profile preview",
     "build:preview:local": "bash scripts/eas-build-local.sh preview",
     "build:production": "eas build --platform android --profile production",
-    "build:production:local": "bash scripts/eas-build-local.sh production"
+    "build:production:local": "bash scripts/eas-build-local.sh production",
+    "eas-build-post-install": "node scripts/eas-strip-dev-client.js"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
     "expo": "~54.0.35",
     "expo-asset": "~12.0.13",
+    "expo-dev-client": "~6.0.21",
     "expo-file-system": "^19.0.23",
     "expo-image-manipulator": "^14.0.8",
     "expo-sharing": "^14.0.8",
