@@ -45,7 +45,7 @@ export default function RevisaoScreen() {
   };
 
   const finish = () => {
-    router.dismissTo('/registrar/servicos');
+    router.dismiss(2);
   };
 
   return (

@@ -4,14 +4,15 @@ import { Feather } from '@expo/vector-icons';
 import colors from '@/constants/colors';
 
 export default function BreadcrumbBar({ items }: { items: string[] }) {
-  if (items.length === 0) return null;
+  const visible = items.filter(Boolean);
+  if (visible.length === 0) return null;
   return (
     <View style={styles.wrap}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {items.map((item, i) => (
+        {visible.map((item, i) => (
           <View key={i} style={styles.itemRow}>
             {i > 0 && <Feather name="chevron-right" size={13} color={colors.light.mutedForeground} style={styles.sep} />}
-            <Text style={[styles.item, i === items.length - 1 && styles.active]} numberOfLines={1}>{item}</Text>
+            <Text style={[styles.item, i === visible.length - 1 && styles.active]} numberOfLines={1}>{item}</Text>
           </View>
         ))}
       </ScrollView>
