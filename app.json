@@ -14,7 +14,9 @@
       "backgroundColor": "#0D47A1"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tapia.registrofotograficodeobra",
+      "appleTeamId": "83XACRJS8Q"
     },
     "android": {
       "package": "com.tapia.registrofotograficodeobra",
