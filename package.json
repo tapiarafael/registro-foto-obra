@@ -6,6 +6,7 @@
   "scripts": {
     "start": "expo start",
     "ios": "expo run:ios",
+    "ios:ipad": "expo run:ios --device 'iPad de Rafael'",
     "android": "bash scripts/android-run.sh",
     "android:check": "bash scripts/check-android-env.sh",
     "android:prebuild": "bash scripts/android-prebuild.sh",
