@@ -7,7 +7,7 @@ import {
   duplicateBuilding, getBuildingCloneStats, getServices, getServicesForDateLocation,
   type Building, type Service,
 } from '@/db/database';
-import { todayDateString } from '@/utils/datetime';
+import { effectiveCaptureDate } from '@/utils/datetime';
 import { openCaptureCamera } from '@/utils/openCaptureCamera';
 import { useShowServices } from '@/hooks/useShowServices';
 import CrudList from '@/components/CrudList';
@@ -38,12 +38,12 @@ export default function BuildingsScreen({ mode }: Props) {
     if (scopeId) setItems(await getBuildingsLite(scopeId));
     if (mode === 'capture' && project && showServices && captureNav.block) {
       setServices(await getServices(project.id));
-      const done = await getServicesForDateLocation('block', captureNav.block.id, todayDateString());
+      const done = await getServicesForDateLocation('block', captureNav.block.id, effectiveCaptureDate(captureNav.captureDate));
       setDoneServiceIds(new Set(done.map((s) => s.id)));
     } else {
       setServices([]);
     }
-  }, [scopeId, mode, project, showServices, captureNav.block]);
+  }, [scopeId, mode, project, showServices, captureNav.block, captureNav.captureDate]);
 
   useFocusEffect(useCallback(() => { reload(); }, [reload]));
 

@@ -67,6 +67,21 @@ export function toLocalDateString(iso: string): string {
   return isoDateFormatter.format(parseStoredTimestamp(iso));
 }
 
+export function effectiveCaptureDate(captureDate: string | null | undefined): string {
+  return captureDate ?? todayDateString();
+}
+
+/** Local calendar date + clock as an ISO instant. */
+export function atLocalDateTime(date: string, hours: number, minutes: number, seconds = 0): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d, hours, minutes, seconds).toISOString();
+}
+
+export function nowOnDate(date: string): string {
+  const n = new Date();
+  return atLocalDateTime(date, n.getHours(), n.getMinutes(), n.getSeconds());
+}
+
 /** ISO week number for a calendar date (YYYY-MM-DD). */
 export function getISOWeekNumber(isoDate: string): number {
   const [y, m, d] = isoDate.split('-').map(Number);

@@ -15,13 +15,15 @@ import {
 import colors from '@/constants/colors';
 import PhotoThumbnailStrip from '@/components/PhotoThumbnailStrip';
 import { useApp } from '@/context/AppContext';
-import { addPhoto, deletePhoto, getPhotosInGroup, getWatermarkConfig, type Photo, type WatermarkConfig } from '@/db/database';
+import { addPhoto, deletePhoto, getPhotosInGroup, getReportShowPhotoTimestamp, getWatermarkConfig, type Photo, type WatermarkConfig } from '@/db/database';
 import { savePhoto, getPhotoUri, getThumbnailUri, deletePhotoFiles } from '@/services/photoService';
-import { formatDateTime } from '@/utils/datetime';
+import { effectiveCaptureDate, formatDateTime, nowOnDate, nowIsoTimestamp, todayDateString } from '@/utils/datetime';
+import { parseExifDateTime } from '@/utils/exifDate';
+import { CaptureDateBanner } from '@/components/CaptureListHeader';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
-type SaveItem = { uri: string; source: 'CAMERA' | 'GALLERY' };
+type SaveItem = { uri: string; source: 'CAMERA' | 'GALLERY'; exif?: Record<string, unknown> | null };
 
 export default function CameraScreen() {
   const c = colors.light;
@@ -49,6 +51,7 @@ export default function CameraScreen() {
   const [preview, setPreview] = useState<Photo | null>(null);
   const [flash, setFlash] = useState<'off' | 'on' | 'auto'>('off');
   const [wmConfig, setWmConfig] = useState<WatermarkConfig | null>(null);
+  const [showPhotoTimestamp, setShowPhotoTimestamp] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(true);
@@ -78,7 +81,8 @@ export default function CameraScreen() {
   useFocusEffect(useCallback(() => {
     void reload();
     void getWatermarkConfig().then(setWmConfig);
-  }, [reload]));
+    void getReportShowPhotoTimestamp(effectiveCaptureDate(captureNav.captureDate)).then(setShowPhotoTimestamp);
+  }, [reload, captureNav.captureDate]));
 
   const updateZoom = useCallback((value: number) => {
     const { min, max } = zoomBoundsRef.current;
@@ -129,25 +133,30 @@ export default function CameraScreen() {
 
   const cameraGestures = useMemo(() => Gesture.Simultaneous(tap, pinch), [tap, pinch]);
 
-  const persistOne = useCallback(async (uri: string, source: 'CAMERA' | 'GALLERY'): Promise<boolean> => {
+  const persistOne = useCallback(async (item: SaveItem): Promise<boolean> => {
     if (!groupId) return false;
     savingCountRef.current += 1;
     setSavingCount(savingCountRef.current);
     try {
-      const saved = await savePhoto(uri);
-      const now = new Date().toISOString();
+      const saved = await savePhoto(item.uri);
+      const captureDate = effectiveCaptureDate(captureNav.captureDate);
+      const capturedAt = item.source === 'GALLERY'
+        ? (parseExifDateTime(item.exif) ?? nowOnDate(captureDate))
+        : nowOnDate(captureDate);
+      const importedAt = item.source === 'GALLERY' ? nowIsoTimestamp() : undefined;
       await addPhoto({
         photoGroupId: groupId,
         internalFilename: saved.internalFilename,
         thumbnailFilename: saved.thumbnailFilename,
-        sourceType: source,
-        capturedAt: now,
-        importedAt: source === 'GALLERY' ? now : undefined,
+        sourceType: item.source,
+        capturedAt,
+        capturedDate: captureDate,
+        importedAt,
         width: saved.width,
         height: saved.height,
         sizeBytes: saved.sizeBytes,
       });
-      incrementTodayCount();
+      if (captureDate === todayDateString()) incrementTodayCount();
       await reload();
       return true;
     } catch (e) {
@@ -157,7 +166,7 @@ export default function CameraScreen() {
       savingCountRef.current -= 1;
       setSavingCount(savingCountRef.current);
     }
-  }, [groupId, incrementTodayCount, reload]);
+  }, [groupId, captureNav.captureDate, incrementTodayCount, reload]);
 
   const drainSaveQueue = useCallback(async () => {
     if (processingRef.current) return;
@@ -165,7 +174,7 @@ export default function CameraScreen() {
     try {
       while (saveQueueRef.current.length > 0) {
         const item = saveQueueRef.current.shift()!;
-        const ok = await persistOne(item.uri, item.source);
+        const ok = await persistOne(item);
         if (!ok) Alert.alert('Erro', 'Não foi possível salvar a foto.');
       }
     } finally {
@@ -179,12 +188,12 @@ export default function CameraScreen() {
     void drainSaveQueue();
   }, [drainSaveQueue]);
 
-  const persistMany = useCallback(async (uris: string[]) => {
-    if (!groupId || uris.length === 0) return;
+  const persistMany = useCallback(async (items: SaveItem[]) => {
+    if (!groupId || items.length === 0) return;
     setImporting(true);
     let failures = 0;
-    for (const uri of uris) {
-      const ok = await persistOne(uri, 'GALLERY');
+    for (const item of items) {
+      const ok = await persistOne(item);
       if (!ok) failures += 1;
     }
     setImporting(false);
@@ -217,9 +226,14 @@ export default function CameraScreen() {
       mediaTypes: ['images'],
       allowsMultipleSelection: true,
       selectionLimit: 0,
+      exif: true,
     });
     if (!result.canceled && result.assets.length > 0) {
-      await persistMany(result.assets.map((a) => a.uri));
+      await persistMany(result.assets.map((a) => ({
+        uri: a.uri,
+        source: 'GALLERY' as const,
+        exif: a.exif ?? null,
+      })));
     }
   };
 
@@ -281,7 +295,9 @@ export default function CameraScreen() {
 
   const wmLines: string[] = [];
   if (wmEnabled) {
-    if (isEnabled('datetime')) wmLines.push(formatDateTime(new Date().toISOString()));
+    if (isEnabled('datetime') && showPhotoTimestamp) {
+      wmLines.push(formatDateTime(nowOnDate(effectiveCaptureDate(captureNav.captureDate))));
+    }
     if (isEnabled('quadra') && captureNav.block?.name) wmLines.push(`Quadra: ${captureNav.block.name}`);
     if (isEnabled('predio') && captureNav.building?.name) wmLines.push(`Prédio: ${captureNav.building.name}`);
     if (isEnabled('pavimento') && captureNav.floor?.name) wmLines.push(`Pav.: ${captureNav.floor.name}`);
@@ -345,6 +361,8 @@ export default function CameraScreen() {
             {flash === 'auto' && <Text style={styles.flashAuto}>A</Text>}
           </TouchableOpacity>
         </View>
+
+        <CaptureDateBanner />
 
         {wmEnabled && wmLines.length > 0 && (
           <View style={styles.watermark} pointerEvents="none">

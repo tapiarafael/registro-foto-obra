@@ -876,6 +876,7 @@ export async function addPhoto(data: {
   thumbnailFilename: string;
   sourceType: 'CAMERA' | 'GALLERY';
   capturedAt: string;
+  capturedDate?: string;
   importedAt?: string;
   width: number;
   height: number;
@@ -883,7 +884,7 @@ export async function addPhoto(data: {
 }): Promise<number> {
   const db = await getDatabase();
   const tzOffset = -new Date().getTimezoneOffset();
-  const capturedDate = toLocalDateString(data.capturedAt);
+  const capturedDate = data.capturedDate ?? toLocalDateString(data.capturedAt);
   const r = await db.runAsync(
     `INSERT INTO photo (photo_group_id,internal_filename,thumbnail_filename,source_type,captured_at,captured_date,imported_at,timezone_offset,width,height,size_bytes)
      VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
@@ -1134,8 +1135,8 @@ export async function deleteGeneratedReportsForDate(date: string): Promise<Gener
   return reports;
 }
 
-export async function getReportConfigHash(): Promise<string> {
-  const [color, pagination, logo, grouping, quality, showLabels, wm] = await Promise.all([
+export async function getReportConfigHash(date: string): Promise<string> {
+  const [color, pagination, logo, grouping, quality, showLabels, wm, showPhotoTimestamp] = await Promise.all([
     getAppSetting('report_primaryColor'),
     getAppSetting('report_paginationMode'),
     getAppSetting('report_logoPath'),
@@ -1143,8 +1144,9 @@ export async function getReportConfigHash(): Promise<string> {
     getAppSetting('report_imageQuality'),
     getAppSetting('report_showLabels'),
     getWatermarkConfig(),
+    getReportShowPhotoTimestamp(date),
   ]);
-  return JSON.stringify({ color, pagination, logo, grouping, quality, showLabels, wm, zipPathVersion: 3 });
+  return JSON.stringify({ color, pagination, logo, grouping, quality, showLabels, wm, showPhotoTimestamp, zipPathVersion: 3 });
 }
 
 // ===== STORAGE =====
@@ -1361,6 +1363,19 @@ export async function getReportShowLabels(): Promise<boolean> {
   return v !== '0';
 }
 
+function photoTimestampSettingKey(date: string): string {
+  return `report_showPhotoTimestamp:${date}`;
+}
+
+export async function getReportShowPhotoTimestamp(date: string): Promise<boolean> {
+  const v = await getAppSetting(photoTimestampSettingKey(date));
+  return v !== '0';
+}
+
+export async function setReportShowPhotoTimestamp(date: string, show: boolean): Promise<void> {
+  await setAppSetting(photoTimestampSettingKey(date), show ? '1' : '0');
+}
+
 export async function getShowServices(): Promise<boolean> {
   const v = await getAppSetting('show_services');
   return v !== '0';
@@ -1386,6 +1401,11 @@ export interface WatermarkFieldItem {
 export interface WatermarkConfig {
   enabled: boolean;
   fields: WatermarkFieldItem[];
+}
+
+export function watermarkConfigForReport(wm: WatermarkConfig, showPhotoTimestamp: boolean): WatermarkConfig {
+  if (showPhotoTimestamp) return wm;
+  return { ...wm, fields: wm.fields.map(f => f.field === 'datetime' ? { ...f, enabled: false } : f) };
 }
 
 export const DEFAULT_WATERMARK_FIELDS: WatermarkFieldItem[] = [

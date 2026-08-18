@@ -3,6 +3,8 @@ import { Zip, ZipPassThrough, strToU8 } from 'fflate';
 import {
   getPhotosForReport,
   getWatermarkConfig,
+  getReportShowPhotoTimestamp,
+  watermarkConfigForReport,
   type PhotoWithHierarchy,
   type WatermarkConfig,
 } from '@/db/database';
@@ -70,10 +72,12 @@ export async function buildReportZip(opts: {
   destPath: string;
   onProgress?: (current: number, total: number) => void;
 }): Promise<void> {
-  const [photos, wmConfig] = await Promise.all([
+  const [photos, wmConfigRaw, showPhotoTimestamp] = await Promise.all([
     getPhotosForReport(opts.blockId, opts.date),
     getWatermarkConfig(),
+    getReportShowPhotoTimestamp(opts.date),
   ]);
+  const wmConfig = watermarkConfigForReport(wmConfigRaw, showPhotoTimestamp);
   const totalSteps = photos.length + 3;
   opts.onProgress?.(0, totalSteps);
 
@@ -130,7 +134,10 @@ export async function buildReportZip(opts: {
         const nested = folderPath ? `${folderPath}/${filename}` : filename;
         const filePath = uniqueZipSegment(nested, usedFilePaths);
         addStoredEntry(zip, `${folderName}/${filePath}`, bytes);
-        indexLines.push(`${buildHierarchyLabel(p)} — ${filePath} — ${formatDateTime(p.captured_at)}`);
+        const dtOn = wmConfig.enabled && isWatermarkFieldOn(wmConfig, 'datetime');
+        indexLines.push(dtOn
+          ? `${buildHierarchyLabel(p)} — ${filePath} — ${formatDateTime(p.captured_at)}`
+          : `${buildHierarchyLabel(p)} — ${filePath}`);
       }
       throwIfWriteFailed();
       opts.onProgress?.(i + 1, totalSteps);

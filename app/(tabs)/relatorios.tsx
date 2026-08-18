@@ -1,12 +1,12 @@
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import {
-  getDateSummaries, getBlockPhotoCountForDate,
+  getDateSummaries, getBlockPhotoCountForDate, setReportShowPhotoTimestamp,
   type DateSummary,
 } from '@/db/database';
 import { getOrGeneratePDF, getOrGenerateZIP, isReportCacheReady, shareFile } from '@/services/reportService';
@@ -14,6 +14,7 @@ import { formatDateLong } from '@/utils/datetime';
 import HierarchyCard from '@/components/HierarchyCard';
 import EmptyState from '@/components/EmptyState';
 import ProgressModal from '@/components/ProgressModal';
+import CreateReportModal from '@/components/CreateReportModal';
 
 const ZIP_PHOTO_WARN_THRESHOLD = 50;
 
@@ -36,12 +37,14 @@ function zipPhaseLabel(phase: ZipProgress['phase']): string {
 
 export default function RelatoriosScreen() {
   const c = colors.light;
-  const { project } = useApp();
+  const router = useRouter();
+  const { project, beginSession, setCaptureNav, resetCaptureNav } = useApp();
   const [dates, setDates] = useState<DateSummary[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<{ block_id: number; block_name: string; photo_count: number; cacheReady?: boolean }[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const loadBlocksForDate = useCallback(async (date: string) => {
     const blockRows = await getBlockPhotoCountForDate(date);
@@ -203,6 +206,15 @@ export default function RelatoriosScreen() {
     );
   };
 
+  const startBackdatedCapture = async (date: string, showPhotoTimestamp: boolean) => {
+    setCreateOpen(false);
+    await setReportShowPhotoTimestamp(date, showPhotoTimestamp);
+    resetCaptureNav();
+    setCaptureNav({ captureDate: date });
+    const session = await beginSession();
+    if (session) router.push('/registrar/quadras');
+  };
+
   const isZipBusy = busy?.startsWith('zip-');
   const progressIsDeterminate = progress !== null && (
     progress.kind === 'pdf'
@@ -212,8 +224,14 @@ export default function RelatoriosScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
+      <View style={styles.toolbar}>
+        <TouchableOpacity style={styles.createBtn} onPress={() => setCreateOpen(true)} activeOpacity={0.85}>
+          <Feather name="plus" size={18} color="#fff" />
+          <Text style={styles.createBtnText}>Criar relatório</Text>
+        </TouchableOpacity>
+      </View>
       {dates.length === 0 ? (
-        <EmptyState icon="file-text" title="Sem relatórios" message="Capture fotos para gerar relatórios em PDF ou exportar em ZIP." />
+        <EmptyState icon="file-text" title="Sem relatórios" message="Crie um relatório ou capture fotos para exportar em PDF ou ZIP." />
       ) : (
         <FlatList
           data={dates}
@@ -287,6 +305,11 @@ export default function RelatoriosScreen() {
           )}
         />
       )}
+      <CreateReportModal
+        visible={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onConfirm={startBackdatedCapture}
+      />
       <ProgressModal
         visible={progress !== null}
         title={isZipBusy ? 'Gerando ZIP' : 'Gerando PDF'}
@@ -314,6 +337,12 @@ export default function RelatoriosScreen() {
 const c = colors.light;
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: c.background },
+  toolbar: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
+  createBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: c.primary, paddingVertical: 14, borderRadius: colors.radius, minHeight: 48,
+  },
+  createBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   list: { padding: 16, gap: 10 },
   blockList: { marginTop: 8, gap: 8, paddingLeft: 12 },
   blockCard: { backgroundColor: c.card, borderRadius: colors.radius, padding: 14, borderWidth: 1, borderColor: c.border },

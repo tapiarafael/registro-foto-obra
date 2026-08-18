@@ -10,6 +10,7 @@ import { deleteReportArtifactFiles } from '@/services/reportService';
 import CrudList from '@/components/CrudList';
 import CloneNameModal from '@/components/structure/CloneNameModal';
 import ProgressModal from '@/components/ProgressModal';
+import { CaptureDateBanner } from '@/components/CaptureListHeader';
 
 type Props = { mode: 'capture' | 'manage' };
 
@@ -74,6 +75,7 @@ export default function BlocksScreen({ mode }: Props) {
         emptyTitle="Nenhuma quadra"
         emptyMessage={mode === 'capture' ? 'Crie a primeira quadra para começar o registro.' : 'Crie a primeira quadra da obra.'}
         addLabel="Nova quadra"
+        header={mode === 'capture' ? <CaptureDateBanner /> : undefined}
         headerNote={mode === 'manage' ? 'Toque em uma quadra para gerenciar seus prédios.' : undefined}
         structureKind="block"
         structureScopeId={project?.id}

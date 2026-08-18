@@ -6,7 +6,7 @@ import {
   getUnitsLite, getUnitsForDate, createUnit, updateUnit, deleteUnit, deleteUnits,
   cloneUnit, getServices, getServicesForDateLocation, type Unit, type Service,
 } from '@/db/database';
-import { todayDateString } from '@/utils/datetime';
+import { effectiveCaptureDate } from '@/utils/datetime';
 import { openCaptureCamera } from '@/utils/openCaptureCamera';
 import { useShowServices } from '@/hooks/useShowServices';
 import CrudList from '@/components/CrudList';
@@ -35,17 +35,18 @@ export default function UnitsScreen({ mode }: Props) {
     if (!scopeId) return;
     setItems(await getUnitsLite(scopeId));
     if (mode === 'capture') {
-      const done = await getUnitsForDate(scopeId, todayDateString());
+      const date = effectiveCaptureDate(captureNav.captureDate);
+      const done = await getUnitsForDate(scopeId, date);
       setDoneIds(new Set(done.map((u) => u.id)));
       if (project && showServices && captureNav.floor) {
         setServices(await getServices(project.id));
-        const svcDone = await getServicesForDateLocation('floor', captureNav.floor.id, todayDateString());
+        const svcDone = await getServicesForDateLocation('floor', captureNav.floor.id, date);
         setDoneServiceIds(new Set(svcDone.map((s) => s.id)));
       } else {
         setServices([]);
       }
     }
-  }, [scopeId, mode, project, showServices, captureNav.floor]);
+  }, [scopeId, mode, project, showServices, captureNav.floor, captureNav.captureDate]);
 
   useFocusEffect(useCallback(() => { reload(); }, [reload]));
 

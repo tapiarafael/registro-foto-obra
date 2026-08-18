@@ -9,7 +9,9 @@ import {
   getPhotoCountForBlockDate,
   getReportConfigHash,
   getReportShowLabels,
+  getReportShowPhotoTimestamp,
   upsertGeneratedReport,
+  watermarkConfigForReport,
   type GeneratedReport,
 } from '@/db/database';
 import {
@@ -85,7 +87,7 @@ async function isCacheEntryValid(
   if (!report || !filePath) return false;
   const [photoCount, configHash] = await Promise.all([
     getPhotoCountForBlockDate(blockId, date),
-    getReportConfigHash(),
+    getReportConfigHash(date),
   ]);
   if (report.photo_count !== photoCount || report.config_hash !== configHash) return false;
   const info = await FileSystem.getInfoAsync(filePath);
@@ -140,7 +142,7 @@ export async function generatePDF(opts: {
   responsibleEngineer?: string | null;
   onProgress?: (current: number, total: number) => void;
 }): Promise<string> {
-  const [colorSetting, paginationSetting, logoPathSetting, groupingStr, qualitySetting, showSectionLabels, wmConfig] = await Promise.all([
+  const [colorSetting, paginationSetting, logoPathSetting, groupingStr, qualitySetting, showSectionLabels, wmConfigRaw, showPhotoTimestamp] = await Promise.all([
     getAppSetting('report_primaryColor'),
     getAppSetting('report_paginationMode'),
     getAppSetting('report_logoPath'),
@@ -148,7 +150,9 @@ export async function generatePDF(opts: {
     getAppSetting('report_imageQuality'),
     getReportShowLabels(),
     getWatermarkConfig(),
+    getReportShowPhotoTimestamp(opts.date),
   ]);
+  const wmConfig = watermarkConfigForReport(wmConfigRaw, showPhotoTimestamp);
 
   const primaryColor = colorSetting || '#0D47A1';
   const paginationMode = (paginationSetting as 'none' | 'current' | 'current_total') || 'none';
@@ -222,7 +226,7 @@ export async function getOrGeneratePDF(
 
   const [photoCount, configHash] = await Promise.all([
     getPhotoCountForBlockDate(opts.blockId, opts.date),
-    getReportConfigHash(),
+    getReportConfigHash(opts.date),
   ]);
   await upsertGeneratedReport({
     blockId: opts.blockId,
@@ -271,7 +275,7 @@ export async function getOrGenerateZIP(
 
   const [photoCount, configHash] = await Promise.all([
     getPhotoCountForBlockDate(opts.blockId, opts.date),
-    getReportConfigHash(),
+    getReportConfigHash(opts.date),
   ]);
   await upsertGeneratedReport({
     blockId: opts.blockId,

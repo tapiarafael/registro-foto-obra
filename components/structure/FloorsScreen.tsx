@@ -7,7 +7,7 @@ import {
   cloneFloor, getFloorCloneStats, getServices, getServicesForDateLocation,
   type Floor, type Service,
 } from '@/db/database';
-import { todayDateString } from '@/utils/datetime';
+import { effectiveCaptureDate } from '@/utils/datetime';
 import { openCaptureCamera } from '@/utils/openCaptureCamera';
 import { useShowServices } from '@/hooks/useShowServices';
 import CrudList from '@/components/CrudList';
@@ -38,12 +38,12 @@ export default function FloorsScreen({ mode }: Props) {
     if (scopeId) setItems(await getFloorsLite(scopeId));
     if (mode === 'capture' && project && showServices && captureNav.building) {
       setServices(await getServices(project.id));
-      const done = await getServicesForDateLocation('building', captureNav.building.id, todayDateString());
+      const done = await getServicesForDateLocation('building', captureNav.building.id, effectiveCaptureDate(captureNav.captureDate));
       setDoneServiceIds(new Set(done.map((s) => s.id)));
     } else {
       setServices([]);
     }
-  }, [scopeId, mode, project, showServices, captureNav.building]);
+  }, [scopeId, mode, project, showServices, captureNav.building, captureNav.captureDate]);
 
   useFocusEffect(useCallback(() => { reload(); }, [reload]));
 

@@ -12,6 +12,7 @@ export interface CaptureNav {
   service: Service | null;
   sessionId: number | null;
   photoGroupId: number | null;
+  captureDate: string | null;
 }
 
 interface AppContextValue {
@@ -32,7 +33,7 @@ interface AppContextValue {
 
 const defaultNav: CaptureNav = {
   block: null, building: null, floor: null, unit: null, service: null,
-  sessionId: null, photoGroupId: null,
+  sessionId: null, photoGroupId: null, captureDate: null,
 };
 
 const AppContext = createContext<AppContextValue>({

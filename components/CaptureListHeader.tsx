@@ -1,7 +1,22 @@
 import React from 'react';
 import { StyleSheet, Switch, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import colors from '@/constants/colors';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
+import { useApp } from '@/context/AppContext';
+import { formatDateLong, todayDateString } from '@/utils/datetime';
+
+export function CaptureDateBanner() {
+  const { captureNav } = useApp();
+  const date = captureNav.captureDate;
+  if (!date || date === todayDateString()) return null;
+  return (
+    <View style={styles.banner}>
+      <Feather name="calendar" size={16} color={colors.light.primary} />
+      <Text style={styles.bannerText}>Relatório de {formatDateLong(date)}</Text>
+    </View>
+  );
+}
 
 type Props = {
   crumbs: string[];
@@ -13,6 +28,7 @@ export default function CaptureListHeader({ crumbs, showServices, onToggleServic
   const c = colors.light;
   return (
     <View>
+      <CaptureDateBanner />
       <BreadcrumbBar items={crumbs} />
       <View style={styles.row}>
         <Text style={styles.label}>Mostrar serviços</Text>
@@ -40,4 +56,10 @@ const styles = StyleSheet.create({
     borderBottomColor: c.border,
   },
   label: { fontSize: 14, fontWeight: '600', color: c.foreground },
+  banner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: c.secondary, paddingHorizontal: 16, paddingVertical: 8,
+    borderBottomWidth: 1, borderBottomColor: c.border,
+  },
+  bannerText: { fontSize: 13, fontWeight: '600', color: c.primary, textTransform: 'capitalize', flex: 1 },
 });
