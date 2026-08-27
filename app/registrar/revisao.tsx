@@ -12,7 +12,7 @@ import BreadcrumbBar from '@/components/BreadcrumbBar';
 import EmptyState from '@/components/EmptyState';
 import { deletePhoto, getPhotosInGroup, type Photo } from '@/db/database';
 import { deletePhotoFiles, getPhotoUri, getThumbnailUri } from '@/services/photoService';
-import { formatDateTime } from '@/utils/datetime';
+import { formatDateTime, effectiveCaptureDate } from '@/utils/datetime';
 
 export default function RevisaoScreen() {
   const c = colors.light;
@@ -24,8 +24,12 @@ export default function RevisaoScreen() {
   const groupId = captureNav.photoGroupId;
 
   const reload = useCallback(async () => {
-    if (groupId) setPhotos(await getPhotosInGroup(groupId));
-  }, [groupId]);
+    if (!groupId) {
+      setPhotos([]);
+      return;
+    }
+    setPhotos(await getPhotosInGroup(groupId, effectiveCaptureDate(captureNav.captureDate)));
+  }, [groupId, captureNav.captureDate]);
 
   useFocusEffect(useCallback(() => { void reload(); }, [reload]));
 

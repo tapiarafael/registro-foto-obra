@@ -20,6 +20,7 @@ import { savePhoto, getPhotoUri, getThumbnailUri, deletePhotoFiles } from '@/ser
 import { effectiveCaptureDate, formatDateTime, nowOnDate, nowIsoTimestamp, todayDateString } from '@/utils/datetime';
 import { parseExifDateTime } from '@/utils/exifDate';
 import { CaptureDateBanner } from '@/components/CaptureListHeader';
+import { captureHeader } from '@/utils/captureHeader';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
@@ -74,9 +75,18 @@ export default function CameraScreen() {
     if (focusTimer.current) clearTimeout(focusTimer.current);
   }, []);
 
+  const captureDate = effectiveCaptureDate(captureNav.captureDate);
+  const header = captureHeader(captureNav);
+
   const reload = useCallback(async () => {
-    if (groupId) setPhotos(await getPhotosInGroup(groupId));
-  }, [groupId]);
+    if (!groupId) {
+      setPhotos([]);
+      return;
+    }
+    setPhotos(await getPhotosInGroup(groupId, captureDate));
+  }, [groupId, captureDate]);
+
+  useEffect(() => { setPhotos([]); }, [groupId, captureDate]);
 
   useFocusEffect(useCallback(() => {
     void reload();
@@ -335,34 +345,33 @@ export default function CameraScreen() {
       )}
 
       <SafeAreaView style={styles.overlay} pointerEvents="box-none">
-        <View style={styles.topBar}>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => router.back()} accessibilityLabel="Voltar">
-            <Feather name="arrow-left" size={22} color="#fff" />
-          </TouchableOpacity>
-          <View style={styles.topInfo}>
-            <Text style={styles.topService} numberOfLines={1}>{captureNav.service?.name}</Text>
-            <Text style={styles.topPath} numberOfLines={1}>
-              {captureNav.block?.name} · {captureNav.building?.name} · {captureNav.floor?.name} · {captureNav.unit?.name}
-            </Text>
+        <View>
+          <View style={styles.topBar}>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => router.back()} accessibilityLabel="Voltar">
+              <Feather name="arrow-left" size={22} color="#fff" />
+            </TouchableOpacity>
+            <View style={styles.topInfo}>
+              <Text style={styles.topService} numberOfLines={1}>{header.title}</Text>
+              {header.path ? <Text style={styles.topPath} numberOfLines={1}>{header.path}</Text> : null}
+            </View>
+            <TouchableOpacity style={styles.iconBtn} onPress={goHome} accessibilityLabel="Início">
+              <Feather name="home" size={20} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.iconBtn, flash !== 'off' && styles.iconBtnActive]}
+              onPress={cycleFlash}
+              accessibilityLabel={flashLabel}
+            >
+              <Feather
+                name={flash === 'off' ? 'zap-off' : 'zap'}
+                size={20}
+                color={flash === 'off' ? '#fff' : '#000'}
+              />
+              {flash === 'auto' && <Text style={styles.flashAuto}>A</Text>}
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.iconBtn} onPress={goHome} accessibilityLabel="Início">
-            <Feather name="home" size={20} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.iconBtn, flash !== 'off' && styles.iconBtnActive]}
-            onPress={cycleFlash}
-            accessibilityLabel={flashLabel}
-          >
-            <Feather
-              name={flash === 'off' ? 'zap-off' : 'zap'}
-              size={20}
-              color={flash === 'off' ? '#fff' : '#000'}
-            />
-            {flash === 'auto' && <Text style={styles.flashAuto}>A</Text>}
-          </TouchableOpacity>
+          <CaptureDateBanner />
         </View>
-
-        <CaptureDateBanner />
 
         {wmEnabled && wmLines.length > 0 && (
           <View style={styles.watermark} pointerEvents="none">

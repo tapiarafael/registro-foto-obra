@@ -864,9 +864,12 @@ export async function getPhotoGroup(id: number): Promise<PhotoGroup | null> {
   return db.getFirstAsync<PhotoGroup>('SELECT * FROM photo_group WHERE id=?', [id]);
 }
 
-export async function getPhotosInGroup(groupId: number): Promise<Photo[]> {
+export async function getPhotosInGroup(groupId: number, capturedDate: string): Promise<Photo[]> {
   const db = await getDatabase();
-  return db.getAllAsync<Photo>('SELECT * FROM photo WHERE photo_group_id=? ORDER BY captured_at', [groupId]);
+  return db.getAllAsync<Photo>(
+    'SELECT * FROM photo WHERE photo_group_id=? AND captured_date=? ORDER BY captured_at',
+    [groupId, capturedDate],
+  );
 }
 
 // ===== PHOTOS =====
