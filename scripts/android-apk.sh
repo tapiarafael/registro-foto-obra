@@ -29,6 +29,9 @@ chmod +x gradlew
 ./gradlew "$GRADLE_TASK"
 
 APK="$ROOT/android/app/build/outputs/apk/$OUT_DIR/app-$OUT_DIR.apk"
+STAMP="$(python3 -c 'import time; print(int(time.time()*1000))')"
+ROOT_APK="$ROOT/build-${STAMP}.apk"
+cp "$APK" "$ROOT_APK"
 echo
 echo "APK built:"
-echo "  $APK"
+echo "  $ROOT_APK"

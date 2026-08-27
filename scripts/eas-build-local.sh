@@ -7,9 +7,9 @@ source "$ROOT/scripts/android-env.sh"
 
 PROFILE="${1:-}"
 case "$PROFILE" in
-  preview|production) ;;
+  preview|production|production-apk) ;;
   *)
-    echo "Usage: $0 [preview|production]"
+    echo "Usage: $0 [preview|production|production-apk]"
     exit 1
     ;;
 esac

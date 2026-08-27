@@ -6,6 +6,7 @@
   "scripts": {
     "start": "expo start",
     "ios": "expo run:ios",
+    "ios:ipad": "expo run:ios --device 'iPad de Rafael'",
     "android": "bash scripts/android-run.sh",
     "android:check": "bash scripts/check-android-env.sh",
     "android:prebuild": "bash scripts/android-prebuild.sh",
@@ -19,6 +20,7 @@
     "build:preview:local": "bash scripts/eas-build-local.sh preview",
     "build:production": "eas build --platform android --profile production",
     "build:production:local": "bash scripts/eas-build-local.sh production",
+    "build:production-apk:local": "bash scripts/eas-build-local.sh production-apk",
     "eas-build-post-install": "node scripts/eas-strip-dev-client.js"
   },
   "dependencies": {
