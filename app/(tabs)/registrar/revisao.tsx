@@ -15,7 +15,7 @@ import { deletePhoto, getPhotosInGroup, type Photo } from '@/db/database';
 import { deletePhotoFiles, getPhotoUri, getThumbnailUri } from '@/services/photoService';
 import { captureBreadcrumbItems } from '@/utils/captureBreadcrumbs';
 import { formatDateTime, effectiveCaptureDate } from '@/utils/datetime';
-import { PHOTO_ASPECT_RATIO } from '@/utils/photoAspect';
+import { displayAspectRatio } from '@/utils/photoAspect';
 
 export default function RevisaoScreen() {
   const c = colors.light;
@@ -87,7 +87,7 @@ export default function RevisaoScreen() {
           contentContainerStyle={styles.grid}
           columnWrapperStyle={styles.gridRow}
           renderItem={({ item }) => (
-            <Pressable style={styles.gridItem} onPress={() => setPreview(item)}>
+            <Pressable style={[styles.gridItem, { aspectRatio: displayAspectRatio(item.width, item.height) }]} onPress={() => setPreview(item)}>
               <Image source={{ uri: getThumbnailUri(item.thumbnail_filename) }} style={styles.gridImg} />
               <View style={styles.gridBadge}>
                 <Text style={styles.gridBadgeText}>{formatDateTime(item.captured_at).split(' ')[1]}</Text>
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
   backToCameraText: { fontSize: 14, color: c.primary, fontWeight: '600' },
   grid: { padding: 12, paddingBottom: 8 },
   gridRow: { gap: 6, marginBottom: 6 },
-  gridItem: { flex: 1 / 3, aspectRatio: PHOTO_ASPECT_RATIO, borderRadius: 8, overflow: 'hidden', backgroundColor: c.secondary, position: 'relative' },
+  gridItem: { flex: 1 / 3, borderRadius: 8, overflow: 'hidden', backgroundColor: c.secondary, position: 'relative' },
   gridImg: { width: '100%', height: '100%' },
   gridBadge: { position: 'absolute', bottom: 4, left: 4, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   gridBadgeText: { color: '#fff', fontSize: 10, fontWeight: '600' },

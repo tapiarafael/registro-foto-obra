@@ -1,4 +1,11 @@
 export const PHOTO_ASPECT_RATIO = 9 / 16;
+export const LANDSCAPE_PHOTO_ASPECT_RATIO = 16 / 9;
+
+export type DeviceOrientation =
+  | 'portrait'
+  | 'portrait-upside-down'
+  | 'landscape-left'
+  | 'landscape-right';
 
 export type CropRect = {
   originX: number;
@@ -42,4 +49,45 @@ export function centerCropRect(
   if (originY < 0) originY = 0;
 
   return { originX, originY, width: cropW, height: cropH };
+}
+
+function swapped(rotation: number): boolean {
+  return Math.abs(rotation) % 180 !== 0;
+}
+
+// A sideways hold should stay horizontal. CameraX sometimes still bakes the
+// portrait-locked preview, so the bitmap is tall while the phone was horizontal.
+export function rotationToUpright(
+  width: number,
+  height: number,
+  orientation?: DeviceOrientation | null,
+): number {
+  if (!orientation) return 0;
+  const bufferIsLandscape = width > height;
+  const holdIsLandscape = orientation === 'landscape-left' || orientation === 'landscape-right';
+  if (bufferIsLandscape === holdIsLandscape) return 0;
+  if (orientation === 'landscape-right' || orientation === 'portrait-upside-down') return -90;
+  return 90;
+}
+
+export function photoFrameAspect(width: number, height: number): number {
+  return width > height ? LANDSCAPE_PHOTO_ASPECT_RATIO : PHOTO_ASPECT_RATIO;
+}
+
+export function displayAspectRatio(width: number, height: number): number {
+  if (!(width > 0) || !(height > 0)) return PHOTO_ASPECT_RATIO;
+  return width / height;
+}
+
+export function captureFrame(
+  width: number,
+  height: number,
+  orientation?: DeviceOrientation | null,
+): { rotation: number; crop: CropRect } {
+  const rotation = rotationToUpright(width, height, orientation);
+  const upright = swapped(rotation) ? { width: height, height: width } : { width, height };
+  return {
+    rotation,
+    crop: centerCropRect(upright.width, upright.height, photoFrameAspect(upright.width, upright.height)),
+  };
 }

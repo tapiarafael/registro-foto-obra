@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 const profile = process.env.EAS_BUILD_PROFILE;
-if (profile !== "production") {
+if (profile !== "production" && profile !== "production-apk") {
   process.exit(0);
 }
 

@@ -1,6 +1,8 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { File } from 'expo-file-system';
+import * as IntentLauncher from 'expo-intent-launcher';
 import * as Sharing from 'expo-sharing';
+import { Platform } from 'react-native';
 import {
   getPhotosForReport,
   getAppSetting,
@@ -288,8 +290,29 @@ export async function getOrGenerateZIP(
   return { uri: zipPath, fromCache: false };
 }
 
+function mimeTypeForUri(uri: string): string {
+  return uri.endsWith('.pdf') ? 'application/pdf' : 'application/zip';
+}
+
 export async function shareFile(uri: string): Promise<void> {
   const canShare = await Sharing.isAvailableAsync();
   if (!canShare) throw new Error('Compartilhamento não disponível neste dispositivo.');
-  await Sharing.shareAsync(uri, { mimeType: uri.endsWith('.pdf') ? 'application/pdf' : 'application/zip' });
+  await Sharing.shareAsync(uri, { mimeType: mimeTypeForUri(uri) });
+}
+
+export async function openFile(uri: string): Promise<void> {
+  const mimeType = mimeTypeForUri(uri);
+  if (Platform.OS !== 'android') {
+    const canShare = await Sharing.isAvailableAsync();
+    if (!canShare) throw new Error('Não foi possível abrir o arquivo neste dispositivo.');
+    await Sharing.shareAsync(uri, { mimeType });
+    return;
+  }
+
+  const contentUri = await FileSystem.getContentUriAsync(uri);
+  await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+    data: contentUri,
+    flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+    type: mimeType,
+  });
 }

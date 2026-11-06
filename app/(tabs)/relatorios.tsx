@@ -9,12 +9,13 @@ import {
   getDateSummaries, getBlockPhotoCountForDate, setReportShowPhotoTimestamp,
   type DateSummary,
 } from '@/db/database';
-import { getOrGeneratePDF, getOrGenerateZIP, isReportCacheReady, shareFile } from '@/services/reportService';
+import { getOrGeneratePDF, getOrGenerateZIP, isReportCacheReady, openFile, shareFile } from '@/services/reportService';
 import { formatDateLong } from '@/utils/datetime';
 import HierarchyCard from '@/components/HierarchyCard';
 import EmptyState from '@/components/EmptyState';
 import ProgressModal from '@/components/ProgressModal';
 import CreateReportModal from '@/components/CreateReportModal';
+import ExportReadyModal from '@/components/ExportReadyModal';
 
 const ZIP_PHOTO_WARN_THRESHOLD = 50;
 
@@ -45,6 +46,7 @@ export default function RelatoriosScreen() {
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [readyExport, setReadyExport] = useState<{ uri: string; kind: 'pdf' | 'zip' } | null>(null);
 
   const loadBlocksForDate = useCallback(async (date: string) => {
     const blockRows = await getBlockPhotoCountForDate(date);
@@ -141,7 +143,7 @@ export default function RelatoriosScreen() {
         onProgress: ready ? undefined : handlePdfProgress,
       }, { force: options?.force });
       if (!ready) setProgress(null);
-      await shareFile(uri);
+      setReadyExport({ uri, kind: 'pdf' });
       if (expanded === date) {
         setBlocks(prev => prev.map(b => b.block_id === block.block_id ? { ...b, cacheReady: true } : b));
       }
@@ -171,7 +173,7 @@ export default function RelatoriosScreen() {
         onProgress: needsProgress ? handleZipProgress : undefined,
       }, { force: options?.force });
       if (needsProgress) setProgress(null);
-      await shareFile(uri);
+      setReadyExport({ uri, kind: 'zip' });
       if (expanded === date) {
         setBlocks(prev => prev.map(b => b.block_id === block.block_id ? { ...b, cacheReady: true } : b));
       }
@@ -204,6 +206,25 @@ export default function RelatoriosScreen() {
         { text: 'ZIP', onPress: () => exportZIP(block, date, { force: true }) },
       ],
     );
+  };
+
+  const handleShareReady = async () => {
+    if (!readyExport) return;
+    try {
+      await shareFile(readyExport.uri);
+      setReadyExport(null);
+    } catch (e) {
+      Alert.alert('Erro', e instanceof Error ? e.message : 'Não foi possível compartilhar o arquivo.');
+    }
+  };
+
+  const handleOpenReady = async () => {
+    if (!readyExport) return;
+    try {
+      await openFile(readyExport.uri);
+    } catch {
+      Alert.alert('Erro', 'Nenhum aplicativo encontrado para abrir este arquivo.');
+    }
   };
 
   const startBackdatedCapture = async (date: string, showPhotoTimestamp: boolean) => {
@@ -309,6 +330,13 @@ export default function RelatoriosScreen() {
         visible={createOpen}
         onCancel={() => setCreateOpen(false)}
         onConfirm={startBackdatedCapture}
+      />
+      <ExportReadyModal
+        visible={readyExport !== null}
+        kind={readyExport?.kind ?? 'pdf'}
+        onShare={handleShareReady}
+        onOpen={handleOpenReady}
+        onClose={() => setReadyExport(null)}
       />
       <ProgressModal
         visible={progress !== null}

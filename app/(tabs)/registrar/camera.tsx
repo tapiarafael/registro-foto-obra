@@ -21,11 +21,16 @@ import { effectiveCaptureDate, formatDateTime, nowOnDate, nowIsoTimestamp, today
 import { parseExifDateTime } from '@/utils/exifDate';
 import { CaptureDateBanner } from '@/components/CaptureListHeader';
 import { captureHeader } from '@/utils/captureHeader';
-import { PHOTO_ASPECT_RATIO } from '@/utils/photoAspect';
+import { PHOTO_ASPECT_RATIO, displayAspectRatio, type DeviceOrientation } from '@/utils/photoAspect';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
-type SaveItem = { uri: string; source: 'CAMERA' | 'GALLERY'; exif?: Record<string, unknown> | null };
+type SaveItem = {
+  uri: string;
+  source: 'CAMERA' | 'GALLERY';
+  exif?: Record<string, unknown> | null;
+  orientation?: DeviceOrientation | null;
+};
 
 export default function CameraScreen() {
   const c = colors.light;
@@ -158,7 +163,7 @@ export default function CameraScreen() {
     savingCountRef.current += 1;
     setSavingCount(savingCountRef.current);
     try {
-      const saved = await savePhoto(item.uri);
+      const saved = await savePhoto(item.uri, { orientation: item.orientation });
       const captureDate = effectiveCaptureDate(captureNav.captureDate);
       const capturedAt = item.source === 'GALLERY'
         ? (parseExifDateTime(item.exif) ?? nowOnDate(captureDate))
@@ -203,8 +208,8 @@ export default function CameraScreen() {
     }
   }, [persistOne]);
 
-  const enqueuePersist = useCallback((uri: string, source: 'CAMERA' | 'GALLERY') => {
-    saveQueueRef.current.push({ uri, source });
+  const enqueuePersist = useCallback((uri: string, source: 'CAMERA' | 'GALLERY', orientation?: DeviceOrientation) => {
+    saveQueueRef.current.push({ uri, source, orientation });
     void drainSaveQueue();
   }, [drainSaveQueue]);
 
@@ -227,7 +232,7 @@ export default function CameraScreen() {
     setCapturing(true);
     try {
       const photo = await cameraRef.current.takePhoto({ flash, enableShutterSound: false });
-      enqueuePersist(`file://${photo.path}`, 'CAMERA');
+      enqueuePersist(`file://${photo.path}`, 'CAMERA', photo.orientation);
     } catch (e) {
       console.error('takePhoto error', e);
     } finally {
@@ -374,6 +379,7 @@ export default function CameraScreen() {
               device={device}
               isActive={active && !preview}
               photo={true}
+              outputOrientation="device"
               zoom={zoom}
               photoQualityBalance="speed"
             />
@@ -411,6 +417,8 @@ export default function CameraScreen() {
                   id: p.id,
                   uri: getThumbnailUri(p.thumbnail_filename),
                   capturedAt: p.captured_at,
+                  width: p.width,
+                  height: p.height,
                 }))}
                 onPressPhoto={(item) => setPreview(photos.find(p => p.id === item.id) ?? null)}
                 onDeletePhoto={(item) => {

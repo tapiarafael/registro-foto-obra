@@ -1,8 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import type { Action } from 'expo-image-manipulator';
-import { Image } from 'react-native';
-import { centerCropRect } from '@/utils/photoAspect';
+import { captureFrame, type DeviceOrientation } from '@/utils/photoAspect';
 
 const PHOTOS_DIR = FileSystem.documentDirectory + 'photos/';
 const THUMBS_DIR = FileSystem.documentDirectory + 'photos/thumbs/';
@@ -15,12 +14,6 @@ function generateId(): string {
   });
 }
 
-function probeImageSize(uri: string): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
-  });
-}
-
 export async function ensureDirectories(): Promise<void> {
   const photosInfo = await FileSystem.getInfoAsync(PHOTOS_DIR);
   if (!photosInfo.exists) await FileSystem.makeDirectoryAsync(PHOTOS_DIR, { intermediates: true });
@@ -28,7 +21,9 @@ export async function ensureDirectories(): Promise<void> {
   if (!thumbsInfo.exists) await FileSystem.makeDirectoryAsync(THUMBS_DIR, { intermediates: true });
 }
 
-export async function savePhoto(sourceUri: string): Promise<{
+export async function savePhoto(sourceUri: string, options?: {
+  orientation?: DeviceOrientation | null;
+}): Promise<{
   internalFilename: string;
   thumbnailFilename: string;
   width: number;
@@ -44,29 +39,24 @@ export async function savePhoto(sourceUri: string): Promise<{
   const permanentUri = PHOTOS_DIR + internalFilename;
   const thumbnailUri = THUMBS_DIR + thumbnailFilename;
 
-  let uri = sourceUri;
-  let width: number;
-  let height: number;
-  try {
-    const size = await probeImageSize(sourceUri);
-    width = size.width;
-    height = size.height;
-  } catch {
-    const measured = await ImageManipulator.manipulateAsync(sourceUri, []);
-    uri = measured.uri;
-    width = measured.width;
-    height = measured.height;
-  }
-
-  const crop = centerCropRect(width, height);
+  // First pass bakes EXIF into pixels so the crop uses the same axis as the bitmap.
+  const loaded = await ImageManipulator.manipulateAsync(
+    sourceUri,
+    [],
+    { format: ImageManipulator.SaveFormat.JPEG, compress: 1 },
+  );
+  const { rotation, crop } = captureFrame(loaded.width, loaded.height, options?.orientation);
   const actions: Action[] = [];
-  if (crop.originX !== 0 || crop.originY !== 0 || crop.width !== width || crop.height !== height) {
-    actions.push({ crop });
-  }
+  if (rotation !== 0) actions.push({ rotate: rotation });
+  const uprightWidth = Math.abs(rotation) % 180 === 0 ? loaded.width : loaded.height;
+  const uprightHeight = Math.abs(rotation) % 180 === 0 ? loaded.height : loaded.width;
+  const needsCrop = crop.originX !== 0 || crop.originY !== 0
+    || crop.width !== uprightWidth || crop.height !== uprightHeight;
+  if (needsCrop) actions.push({ crop });
   actions.push({ resize: { width: 1440 } });
 
   const manipulated = await ImageManipulator.manipulateAsync(
-    uri,
+    loaded.uri,
     actions,
     { format: ImageManipulator.SaveFormat.JPEG, compress: 0.88 }
   );
