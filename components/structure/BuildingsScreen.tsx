@@ -119,7 +119,7 @@ export default function BuildingsScreen({ mode }: Props) {
         addLabel="Novo prédio"
         header={mode === 'capture'
           ? <CaptureListHeader
-              crumbs={[captureNav.block?.name ?? '']}
+              current="predios"
               showServices={showServices}
               onToggleServices={(v) => { void setShowServicesPref(v); }}
             />

@@ -117,7 +117,7 @@ export default function FloorsScreen({ mode }: Props) {
         addLabel="Novo pavimento"
         header={mode === 'capture'
           ? <CaptureListHeader
-              crumbs={[captureNav.block?.name ?? '', captureNav.building?.name ?? '']}
+              current="pavimentos"
               showServices={showServices}
               onToggleServices={(v) => { void setShowServicesPref(v); }}
             />

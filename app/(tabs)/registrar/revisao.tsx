@@ -10,14 +10,18 @@ import colors from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
 import EmptyState from '@/components/EmptyState';
+import { useCaptureLevelNavigate } from '@/hooks/useCaptureLevelNavigate';
 import { deletePhoto, getPhotosInGroup, type Photo } from '@/db/database';
 import { deletePhotoFiles, getPhotoUri, getThumbnailUri } from '@/services/photoService';
+import { captureBreadcrumbItems } from '@/utils/captureBreadcrumbs';
 import { formatDateTime, effectiveCaptureDate } from '@/utils/datetime';
+import { PHOTO_ASPECT_RATIO } from '@/utils/photoAspect';
 
 export default function RevisaoScreen() {
   const c = colors.light;
   const router = useRouter();
   const { captureNav, refreshDashboard } = useApp();
+  const navigate = useCaptureLevelNavigate();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [preview, setPreview] = useState<Photo | null>(null);
 
@@ -54,13 +58,10 @@ export default function RevisaoScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <BreadcrumbBar items={[
-        captureNav.block?.name ?? '',
-        captureNav.building?.name ?? '',
-        captureNav.floor?.name ?? '',
-        captureNav.unit?.name ?? '',
-        captureNav.service?.name ?? '',
-      ]} />
+      <BreadcrumbBar items={captureBreadcrumbItems(captureNav, 'revisao').map((item) => ({
+        label: item.label,
+        onPress: item.target ? () => navigate(item.target!) : undefined,
+      }))} />
 
       <View style={styles.header}>
         <Text style={styles.count}>
@@ -148,7 +149,7 @@ const styles = StyleSheet.create({
   backToCameraText: { fontSize: 14, color: c.primary, fontWeight: '600' },
   grid: { padding: 12, paddingBottom: 8 },
   gridRow: { gap: 6, marginBottom: 6 },
-  gridItem: { flex: 1 / 3, aspectRatio: 1, borderRadius: 8, overflow: 'hidden', backgroundColor: c.secondary, position: 'relative' },
+  gridItem: { flex: 1 / 3, aspectRatio: PHOTO_ASPECT_RATIO, borderRadius: 8, overflow: 'hidden', backgroundColor: c.secondary, position: 'relative' },
   gridImg: { width: '100%', height: '100%' },
   gridBadge: { position: 'absolute', bottom: 4, left: 4, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   gridBadgeText: { color: '#fff', fontSize: 10, fontWeight: '600' },

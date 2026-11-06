@@ -14,6 +14,7 @@ export default function EstruturaLayout() {
         animationDuration: 260,
       }}
     >
+      <Stack.Screen name="index" options={{ title: 'Estrutura' }} />
       <Stack.Screen name="quadras" options={{ title: 'Quadras' }} />
       <Stack.Screen name="predios" options={{ title: 'Prédios' }} />
       <Stack.Screen name="pavimentos" options={{ title: 'Pavimentos' }} />

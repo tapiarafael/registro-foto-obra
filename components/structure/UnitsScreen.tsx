@@ -126,11 +126,7 @@ export default function UnitsScreen({ mode }: Props) {
         addLabel="Nova unidade"
         header={mode === 'capture'
           ? <CaptureListHeader
-              crumbs={[
-                captureNav.block?.name ?? '',
-                captureNav.building?.name ?? '',
-                captureNav.floor?.name ?? '',
-              ]}
+              current="unidades"
               showServices={showServices}
               onToggleServices={(v) => { void setShowServicesPref(v); }}
             />

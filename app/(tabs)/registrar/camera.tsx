@@ -21,6 +21,7 @@ import { effectiveCaptureDate, formatDateTime, nowOnDate, nowIsoTimestamp, today
 import { parseExifDateTime } from '@/utils/exifDate';
 import { CaptureDateBanner } from '@/components/CaptureListHeader';
 import { captureHeader } from '@/utils/captureHeader';
+import { PHOTO_ASPECT_RATIO } from '@/utils/photoAspect';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
@@ -56,6 +57,15 @@ export default function CameraScreen() {
   const [zoom, setZoom] = useState(1);
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(true);
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+
+  const previewSize = useMemo(() => {
+    const { width, height } = stageSize;
+    if (width <= 0 || height <= 0) return { width: 0, height: 0 };
+    const byWidth = { width, height: width / PHOTO_ASPECT_RATIO };
+    if (byWidth.height <= height) return byWidth;
+    return { width: height * PHOTO_ASPECT_RATIO, height };
+  }, [stageSize]);
 
   const cycleFlash = () => setFlash((f) => (f === 'off' ? 'on' : f === 'on' ? 'auto' : 'off'));
   const flashLabel = flash === 'off' ? 'Flash' : flash === 'on' ? 'Flash ligado' : 'Flash auto';
@@ -319,31 +329,6 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      <Camera
-        ref={cameraRef}
-        style={StyleSheet.absoluteFill}
-        device={device}
-        isActive={active && !preview}
-        photo={true}
-        zoom={zoom}
-        photoQualityBalance="speed"
-      />
-
-      <GestureDetector gesture={cameraGestures}>
-        <View
-          style={StyleSheet.absoluteFill}
-          accessibilityLabel="Área da câmera"
-          accessibilityHint="Toque para focar ou belisque para zoom"
-        />
-      </GestureDetector>
-
-      {focusPoint && (
-        <View
-          pointerEvents="none"
-          style={[styles.reticle, { left: focusPoint.x - 35, top: focusPoint.y - 35 }]}
-        />
-      )}
-
       <SafeAreaView style={styles.overlay} pointerEvents="box-none">
         <View>
           <View style={styles.topBar}>
@@ -373,46 +358,84 @@ export default function CameraScreen() {
           <CaptureDateBanner />
         </View>
 
-        {wmEnabled && wmLines.length > 0 && (
-          <View style={styles.watermark} pointerEvents="none">
-            {wmLines.map((line, i) => (
-              <Text key={i} style={styles.wmText}>{line}</Text>
-            ))}
+        <View
+          style={styles.previewStage}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            setStageSize((prev) => (
+              prev.width === width && prev.height === height ? prev : { width, height }
+            ));
+          }}
+        >
+          <View style={[styles.previewFrame, previewSize.width > 0 ? previewSize : undefined]}>
+            <Camera
+              ref={cameraRef}
+              style={StyleSheet.absoluteFill}
+              device={device}
+              isActive={active && !preview}
+              photo={true}
+              zoom={zoom}
+              photoQualityBalance="speed"
+            />
+
+            <GestureDetector gesture={cameraGestures}>
+              <View
+                style={StyleSheet.absoluteFill}
+                accessibilityLabel="Área da câmera"
+                accessibilityHint="Toque para focar ou belisque para zoom"
+              />
+            </GestureDetector>
+
+            {focusPoint && (
+              <View
+                pointerEvents="none"
+                style={[styles.reticle, { left: focusPoint.x - 35, top: focusPoint.y - 35 }]}
+              />
+            )}
+
+            {wmEnabled && wmLines.length > 0 && (
+              <View style={styles.watermark} pointerEvents="none">
+                {wmLines.map((line, i) => (
+                  <Text key={i} style={styles.wmText}>{line}</Text>
+                ))}
+              </View>
+            )}
           </View>
-        )}
-
-        <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.galleryBtn} onPress={pickFromGallery} disabled={galleryBusy}>
-            {galleryBusy ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="image" size={24} color="#fff" />}
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.shutter} onPress={takePhoto} disabled={capturing} activeOpacity={0.7}>
-            {capturing ? <ActivityIndicator color={c.primary} /> : <View style={styles.shutterInner} />}
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.doneBtn} onPress={finish}>
-            <Feather name="check" size={24} color="#fff" />
-            <Text style={styles.doneText}>{photos.length}</Text>
-          </TouchableOpacity>
         </View>
 
-        {photos.length > 0 && (
-          <View style={styles.strip}>
-            <PhotoThumbnailStrip
-              photos={photos.map(p => ({
-                id: p.id,
-                uri: getThumbnailUri(p.thumbnail_filename),
-                capturedAt: p.captured_at,
-              }))}
-              onPressPhoto={(item) => setPreview(photos.find(p => p.id === item.id) ?? null)}
-              onDeletePhoto={(item) => {
-                const photo = photos.find(p => p.id === item.id);
-                if (photo) removePhoto(photo);
-              }}
-              size={56}
-            />
+        <View>
+          {photos.length > 0 && (
+            <View style={styles.strip}>
+              <PhotoThumbnailStrip
+                photos={photos.map(p => ({
+                  id: p.id,
+                  uri: getThumbnailUri(p.thumbnail_filename),
+                  capturedAt: p.captured_at,
+                }))}
+                onPressPhoto={(item) => setPreview(photos.find(p => p.id === item.id) ?? null)}
+                onDeletePhoto={(item) => {
+                  const photo = photos.find(p => p.id === item.id);
+                  if (photo) removePhoto(photo);
+                }}
+                size={48}
+              />
+            </View>
+          )}
+          <View style={styles.bottomBar}>
+            <TouchableOpacity style={styles.galleryBtn} onPress={pickFromGallery} disabled={galleryBusy}>
+              {galleryBusy ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="image" size={24} color="#fff" />}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.shutter} onPress={takePhoto} disabled={capturing} activeOpacity={0.7}>
+              {capturing ? <ActivityIndicator color={c.primary} /> : <View style={styles.shutterInner} />}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.doneBtn} onPress={finish}>
+              <Feather name="check" size={24} color="#fff" />
+              <Text style={styles.doneText}>{photos.length}</Text>
+            </TouchableOpacity>
           </View>
-        )}
+        </View>
       </SafeAreaView>
 
       <Modal visible={!!preview} transparent animationType="fade" onRequestClose={() => setPreview(null)}>
@@ -446,6 +469,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' },
   overlay: { flex: 1, justifyContent: 'space-between' },
+  previewStage: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  previewFrame: { overflow: 'hidden', backgroundColor: '#111', aspectRatio: PHOTO_ASPECT_RATIO, width: '100%' },
   topBar: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, backgroundColor: 'rgba(0,0,0,0.4)' },
   iconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
   iconBtnActive: { backgroundColor: c.accent },
@@ -453,7 +478,7 @@ const styles = StyleSheet.create({
   topInfo: { flex: 1 },
   topService: { color: '#fff', fontSize: 16, fontWeight: '700' },
   topPath: { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 2 },
-  watermark: { position: 'absolute', bottom: 200, left: 16, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  watermark: { position: 'absolute', bottom: 12, left: 12, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
   wmText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   bottomBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingVertical: 24, paddingHorizontal: 24, backgroundColor: 'rgba(0,0,0,0.4)' },
   galleryBtn: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
@@ -461,7 +486,7 @@ const styles = StyleSheet.create({
   shutterInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff' },
   doneBtn: { width: 56, height: 56, borderRadius: 28, backgroundColor: c.success, alignItems: 'center', justifyContent: 'center' },
   doneText: { color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 1 },
-  strip: { position: 'absolute', bottom: 130, left: 0, right: 0, paddingHorizontal: 16 },
+  strip: { paddingHorizontal: 16, paddingBottom: 8 },
   reticle: {
     position: 'absolute', width: 70, height: 70,
     borderWidth: 2, borderColor: '#fff', borderRadius: 2,

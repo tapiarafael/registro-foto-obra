@@ -1,7 +1,8 @@
 import React from 'react';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import colors from '@/constants/colors';
+import { PHOTO_ASPECT_RATIO } from '@/utils/photoAspect';
 
 interface PhotoItem {
   id: number;
@@ -21,7 +22,7 @@ export default function PhotoThumbnailStrip({ photos, onPressPhoto, onDeletePhot
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.content}>
       {photos.map(photo => (
-        <View key={photo.id} style={[styles.item, { width: size, height: size }]}>
+        <View key={photo.id} style={[styles.item, { width: size, height: Math.round(size / PHOTO_ASPECT_RATIO) }]}>
           <TouchableOpacity activeOpacity={0.8} onPress={() => onPressPhoto?.(photo)} style={StyleSheet.absoluteFill}>
             <Image source={{ uri: photo.uri }} style={styles.image} />
           </TouchableOpacity>

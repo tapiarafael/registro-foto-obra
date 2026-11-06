@@ -83,12 +83,7 @@ export default function ServicesScreen({ mode }: Props) {
       addLabel="Novo serviço"
       header={mode === 'capture'
         ? <CaptureListHeader
-            crumbs={[
-              captureNav.block?.name ?? '',
-              captureNav.building?.name ?? '',
-              captureNav.floor?.name ?? '',
-              captureNav.unit?.name ?? '',
-            ]}
+            current="servicos"
             showServices={showServices}
             onToggleServices={(v) => { void setShowServicesPref(v); }}
           />

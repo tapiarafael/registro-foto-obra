@@ -12,6 +12,8 @@ import {
 } from '@/db/database';
 import { getPhotoUri, getThumbnailUri } from '@/services/photoService';
 import { formatDateLong, formatDateTime } from '@/utils/datetime';
+import { historicoBreadcrumbItems, type HistoricoNavLevel } from '@/utils/historicoBreadcrumbs';
+import { PHOTO_ASPECT_RATIO } from '@/utils/photoAspect';
 import HierarchyCard from '@/components/HierarchyCard';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
 import HierarchyNavBar from '@/components/HierarchyNavBar';
@@ -209,13 +211,17 @@ export default function HistoricoScreen() {
     setLevel(prevLevel);
   };
 
-  const crumbs = [
-    date ? formatDateLong(date) : '',
-    path.block?.name,
-    path.building?.name,
-    path.floor?.name,
-    path.unit?.name,
-  ].filter(Boolean) as string[];
+  const goToLevel = async (target: HistoricoNavLevel) => {
+    const trimmedPath = pathForLevel(path, target);
+    const nextItems = await loadLevelItems(target, date, trimmedPath);
+    setPath(trimmedPath);
+    setPhotos([]);
+    setPhotoOrigin(null);
+    setItems(nextItems);
+    setLevel(target);
+  };
+
+  const crumbs = historicoBreadcrumbItems(date ? formatDateLong(date) : '', path, level);
 
   if (level === 'dates') {
     const dates = items as DateSummary[];
@@ -250,7 +256,10 @@ export default function HistoricoScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <HierarchyNavBar onBack={back} onHome={goDates} />
-      <BreadcrumbBar items={crumbs} />
+      <BreadcrumbBar items={crumbs.map((item) => ({
+        label: item.label,
+        onPress: item.target ? () => { void goToLevel(item.target!); } : undefined,
+      }))} />
       {level === 'photos' ? (
         photos.length === 0 ? (
           <EmptyState icon="image" title="Sem fotos" />
@@ -331,7 +340,7 @@ const styles = StyleSheet.create({
   listSeparator: { height: 10 },
   grid: { padding: 12 },
   gridRow: { gap: 6, marginBottom: 6 },
-  gridItem: { flex: 1 / 3, aspectRatio: 1, borderRadius: 8, overflow: 'hidden', backgroundColor: c.secondary, position: 'relative' },
+  gridItem: { flex: 1 / 3, aspectRatio: PHOTO_ASPECT_RATIO, borderRadius: 8, overflow: 'hidden', backgroundColor: c.secondary, position: 'relative' },
   gridImg: { width: '100%', height: '100%' },
   gridBadge: { position: 'absolute', bottom: 4, left: 4, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   gridBadgeText: { color: '#fff', fontSize: 10, fontWeight: '600' },

@@ -1,5 +1,8 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
+import type { Action } from 'expo-image-manipulator';
+import { Image } from 'react-native';
+import { centerCropRect } from '@/utils/photoAspect';
 
 const PHOTOS_DIR = FileSystem.documentDirectory + 'photos/';
 const THUMBS_DIR = FileSystem.documentDirectory + 'photos/thumbs/';
@@ -9,6 +12,12 @@ function generateId(): string {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
+  });
+}
+
+function probeImageSize(uri: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
   });
 }
 
@@ -35,9 +44,30 @@ export async function savePhoto(sourceUri: string): Promise<{
   const permanentUri = PHOTOS_DIR + internalFilename;
   const thumbnailUri = THUMBS_DIR + thumbnailFilename;
 
+  let uri = sourceUri;
+  let width: number;
+  let height: number;
+  try {
+    const size = await probeImageSize(sourceUri);
+    width = size.width;
+    height = size.height;
+  } catch {
+    const measured = await ImageManipulator.manipulateAsync(sourceUri, []);
+    uri = measured.uri;
+    width = measured.width;
+    height = measured.height;
+  }
+
+  const crop = centerCropRect(width, height);
+  const actions: Action[] = [];
+  if (crop.originX !== 0 || crop.originY !== 0 || crop.width !== width || crop.height !== height) {
+    actions.push({ crop });
+  }
+  actions.push({ resize: { width: 1440 } });
+
   const manipulated = await ImageManipulator.manipulateAsync(
-    sourceUri,
-    [{ resize: { width: 1440 } }],
+    uri,
+    actions,
     { format: ImageManipulator.SaveFormat.JPEG, compress: 0.88 }
   );
 

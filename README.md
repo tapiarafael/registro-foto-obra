@@ -76,13 +76,13 @@ Após alterar dependências nativas (câmera, SQLite, etc.), gere um novo build 
 ```
 app/                          # Rotas (expo-router)
   (tabs)/                     # Registrar · Configurações · Relatórios · Estrutura
-  registrar/                  # Fluxo de captura (wrappers finos)
-  estrutura/                  # Gestão da obra + gerador em massa
+    registrar/                # Fluxo de captura (navbar visível; oculta na câmera)
+    estrutura/                # Gestão da obra + gerador em massa
+    historico.tsx             # Navegação por data
+    armazenamento.tsx         # Uso de disco
+    marca-dagua.tsx           # Configuração da marca d'água
+    relatorio-config.tsx      # Opções de PDF/ZIP
   setup.tsx                   # Onboarding inicial da obra
-  historico.tsx               # Navegação por data
-  armazenamento.tsx           # Uso de disco
-  marca-dagua.tsx             # Configuração da marca d'água
-  relatorio-config.tsx        # Opções de PDF/ZIP
 
 components/
   structure/                  # Telas compartilhadas capture | manage

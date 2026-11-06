@@ -49,13 +49,6 @@ function RootLayoutNav() {
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen name="setup" options={{ headerShown: false, animation: "fade" }} />
-      <Stack.Screen name="registrar" options={{ headerShown: false, animation: "fade" }} />
-      <Stack.Screen name="estrutura" options={{ headerShown: false }} />
-      <Stack.Screen name="historico" options={{ title: "Histórico", headerShown: true }} />
-      <Stack.Screen name="armazenamento" options={{ title: "Armazenamento", headerShown: true }} />
-      <Stack.Screen name="obra" options={{ title: "Dados da Obra", headerShown: true }} />
-      <Stack.Screen name="relatorio-config" options={{ title: "Configurações do Relatório", headerShown: true }} />
-      <Stack.Screen name="marca-dagua" options={{ title: "Marca d'Água", headerShown: true }} />
     </Stack>
   );
 }

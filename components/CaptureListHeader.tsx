@@ -4,6 +4,8 @@ import { Feather } from '@expo/vector-icons';
 import colors from '@/constants/colors';
 import BreadcrumbBar from '@/components/BreadcrumbBar';
 import { useApp } from '@/context/AppContext';
+import { useCaptureLevelNavigate } from '@/hooks/useCaptureLevelNavigate';
+import { captureBreadcrumbItems, type CaptureScreen } from '@/utils/captureBreadcrumbs';
 import { formatDateLong, todayDateString } from '@/utils/datetime';
 
 export function CaptureDateBanner() {
@@ -19,13 +21,19 @@ export function CaptureDateBanner() {
 }
 
 type Props = {
-  crumbs: string[];
+  current: Exclude<CaptureScreen, 'revisao'>;
   showServices: boolean;
   onToggleServices: (value: boolean) => void;
 };
 
-export default function CaptureListHeader({ crumbs, showServices, onToggleServices }: Props) {
+export default function CaptureListHeader({ current, showServices, onToggleServices }: Props) {
   const c = colors.light;
+  const { captureNav } = useApp();
+  const navigate = useCaptureLevelNavigate();
+  const crumbs = captureBreadcrumbItems(captureNav, current).map((item) => ({
+    label: item.label,
+    onPress: item.target ? () => navigate(item.target!) : undefined,
+  }));
   return (
     <View>
       <CaptureDateBanner />
